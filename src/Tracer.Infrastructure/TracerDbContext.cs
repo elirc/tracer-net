@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Tracer.Domain.Entities;
 
@@ -19,6 +20,8 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
     public DbSet<IssueRelation> IssueRelations => Set<IssueRelation>();
     public DbSet<Activity> Activities => Set<Activity>();
+    public DbSet<Webhook> Webhooks => Set<Webhook>();
+    public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -191,6 +194,56 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
             // that way: the timeline by issue, the team feed by team.
             activity.HasIndex(a => new { a.IssueId, a.CreatedAt });
             activity.HasIndex(a => new { a.TeamId, a.CreatedAt });
+        });
+
+        modelBuilder.Entity<Webhook>(webhook =>
+        {
+            webhook.Property(w => w.Name).HasMaxLength(100);
+            webhook.Property(w => w.Url).HasMaxLength(2000);
+            webhook.Property(w => w.Secret).HasMaxLength(100);
+
+            // Stored as a sorted, comma-joined list rather than a join table.
+            // The only question ever asked of it is "does this webhook want this
+            // event?", answered for the handful of webhooks one team has, so a
+            // table to make it queryable would buy nothing and cost a join on
+            // every dispatch. The comparer is not optional: without one EF
+            // compares the List by reference, decides it never changes, and
+            // silently drops every edit to a subscription.
+            webhook.Property(w => w.Events)
+                .HasMaxLength(500)
+                .HasConversion(
+                    events => string.Join(',', events.Select(e => e.ToString())),
+                    stored => stored.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(Enum.Parse<WebhookEvent>)
+                        .ToList(),
+                    new ValueComparer<List<WebhookEvent>>(
+                        (left, right) => left!.SequenceEqual(right!),
+                        events => events.Aggregate(0, (hash, e) => HashCode.Combine(hash, e.GetHashCode())),
+                        events => events.ToList()));
+
+            webhook.HasOne(w => w.Team)
+                .WithMany()
+                .HasForeignKey(w => w.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            webhook.HasIndex(w => w.TeamId);
+        });
+
+        modelBuilder.Entity<WebhookDelivery>(delivery =>
+        {
+            delivery.Property(d => d.Error).HasMaxLength(500);
+
+            delivery.HasOne(d => d.Webhook)
+                .WithMany(w => w.Deliveries)
+                .HasForeignKey(d => d.WebhookId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The worker's only query: what is owed, oldest first. Without this
+            // index, draining the outbox scans every delivery ever made.
+            delivery.HasIndex(d => new { d.Status, d.NextAttemptAt });
+
+            // The team's view of their own log, newest first.
+            delivery.HasIndex(d => new { d.WebhookId, d.CreatedAt });
         });
 
         modelBuilder.Entity<Label>(label =>

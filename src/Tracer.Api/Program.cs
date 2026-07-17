@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Tracer.Api.Auth;
+using Tracer.Api.Webhooks;
 using Tracer.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,27 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddScoped<TeamAccess>();
 builder.Services.AddScoped<ActivityRecorder>();
+builder.Services.AddScoped<WebhookOutbox>();
+builder.Services.AddScoped<WebhookSender>();
+
+// A named client so webhook calls are configured as what they are: requests to
+// someone else's server, which may be slow, hostile, or a black hole. The
+// timeout is the important part — the default is 100 seconds, which is long
+// enough for one dead endpoint to occupy the delivery worker indefinitely.
+builder.Services.AddHttpClient(WebhookSender.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    // A signed payload must not be quietly forwarded somewhere else because a
+    // redirect said so; the signature travels in a header and the destination is
+    // what the team registered. A 3xx is a misconfigured endpoint, and
+    // WebhookRetryPolicy classifies it as such.
+    AllowAutoRedirect = false,
+});
+
+builder.Services.AddHostedService<WebhookDeliveryWorker>();
 
 // Controllers report their own errors as ProblemDetails, but plenty of error
 // responses never reach a controller: an unmatched route, a method that does not

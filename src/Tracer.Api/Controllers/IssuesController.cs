@@ -130,7 +130,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             Position = nextPosition + 1,
         };
         db.Issues.Add(issue);
-        activity.Record(User, issue, ActivityType.IssueCreated, newValue: issue.Title);
+        await activity.RecordAsync(User, issue, ActivityType.IssueCreated, newValue: issue.Title);
         await db.SaveChangesAsync();
 
         return CreatedAtAction(nameof(Get), new { id = issue.Id }, issue.ToDto(team!.Key, state.Name));
@@ -217,20 +217,20 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
         issue.ParentId = request.ParentId;
         issue.UpdatedAt = DateTimeOffset.UtcNow;
 
-        RecordEdits(issue, before.Title, before.Description, before.Priority, before.Estimate);
+        await RecordEditsAsync(issue, before.Title, before.Description, before.Priority, before.Estimate);
 
         // Assignment and re-parenting are not field edits, they are things that
         // happen to a person or a plan, so they get their own event types rather
         // than being flattened into "someone changed a column".
         if (!string.Equals(before.Assignee, issue.Assignee, StringComparison.Ordinal))
         {
-            activity.Record(User, issue, ActivityType.IssueAssigned,
+            await activity.RecordAsync(User, issue, ActivityType.IssueAssigned,
                 oldValue: before.Assignee, newValue: issue.Assignee);
         }
 
         if (before.ParentId != issue.ParentId)
         {
-            activity.Record(User, issue, ActivityType.IssueParentChanged,
+            await activity.RecordAsync(User, issue, ActivityType.IssueParentChanged,
                 oldValue: await IdentifierOfAsync(before.ParentId),
                 newValue: await IdentifierOfAsync(issue.ParentId));
         }
@@ -246,7 +246,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
     /// records nothing, because nothing happened; a feed that says "ana updated
     /// this" fourteen times for one edit is a feed people stop reading.
     /// </summary>
-    private void RecordEdits(
+    private async Task RecordEditsAsync(
         Issue issue,
         string? oldTitle,
         string? oldDescription,
@@ -255,7 +255,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
     {
         if (!string.Equals(oldTitle, issue.Title, StringComparison.Ordinal))
         {
-            activity.Record(User, issue, ActivityType.IssueUpdated, "title", oldTitle, issue.Title);
+            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "title", oldTitle, issue.Title);
         }
 
         if (!string.Equals(oldDescription, issue.Description, StringComparison.Ordinal))
@@ -263,18 +263,18 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             // The values themselves are left out: a description can run to
             // kilobytes, and an audit log is not a place to store two copies of
             // it. That it changed, by whom, and when is the useful part.
-            activity.Record(User, issue, ActivityType.IssueUpdated, "description");
+            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "description");
         }
 
         if (oldPriority != issue.Priority)
         {
-            activity.Record(User, issue, ActivityType.IssueUpdated, "priority",
+            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "priority",
                 oldPriority.ToString(), issue.Priority.ToString());
         }
 
         if (oldEstimate != issue.Estimate)
         {
-            activity.Record(User, issue, ActivityType.IssueUpdated, "estimate",
+            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "estimate",
                 oldEstimate?.ToString(), issue.Estimate?.ToString());
         }
     }
@@ -335,7 +335,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             issue.State = target;
             issue.Position = nextPosition + 1;
             issue.UpdatedAt = DateTimeOffset.UtcNow;
-            activity.Record(User, issue, ActivityType.IssueStateChanged, oldValue: previous, newValue: target.Name);
+            await activity.RecordAsync(User, issue, ActivityType.IssueStateChanged, oldValue: previous, newValue: target.Name);
             await db.SaveChangesAsync();
         }
 
@@ -461,7 +461,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
         // the feed under the noise of one person tidying their board.
         if (changedColumn)
         {
-            activity.Record(User, issue, ActivityType.IssueStateChanged,
+            await activity.RecordAsync(User, issue, ActivityType.IssueStateChanged,
                 oldValue: leftColumn, newValue: target.Name);
         }
 
@@ -527,7 +527,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
         // the removal. The log carries no foreign key to the issue precisely so
         // that this entry outlives it — "who deleted this?" is the question an
         // audit log exists for.
-        activity.Record(User, issue, ActivityType.IssueDeleted, oldValue: issue.Title);
+        await activity.RecordAsync(User, issue, ActivityType.IssueDeleted, oldValue: issue.Title);
         db.Issues.Remove(issue);
         await db.SaveChangesAsync();
         return NoContent();

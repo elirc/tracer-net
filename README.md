@@ -187,6 +187,20 @@ Admin-only, except where noted.
 | `GET` | `/api/issues/{issueId}/activity` | One issue's history, newest first |
 | `GET` | `/api/teams/{teamId}/activity` | The team's feed; filterable — see [Activity](#activity) |
 
+### Webhooks
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams/{teamId}/webhooks` | List a team's webhooks |
+| `POST` | `/api/teams/{teamId}/webhooks` | Subscribe; the only response carrying the signing secret |
+| `GET` | `/api/webhooks/{id}` | Get a webhook (never the secret) |
+| `PUT` | `/api/webhooks/{id}` | Change its URL, events, or active flag |
+| `POST` | `/api/webhooks/{id}/rotate-secret` | Replace the secret; the old one stops working immediately |
+| `DELETE` | `/api/webhooks/{id}` | Delete a webhook and its delivery log |
+| `GET` | `/api/webhooks/{id}/deliveries` | Delivery log; `?status=Pending\|Delivered\|Failed` |
+| `GET` | `/api/webhooks/{id}/deliveries/{deliveryId}` | One delivery, with the exact bytes that were sent |
+| `POST` | `/api/webhooks/{id}/deliveries/{deliveryId}/redeliver` | Queue a finished delivery to be tried again |
+
 ### Relations
 
 | Method | Route | Purpose |
@@ -401,6 +415,112 @@ that's caught. Two consequences worth knowing:
   two copies of it; comment bodies are excerpted. An append-only table holding
   every version of every 10k-character body stops being an audit log and becomes
   a second, worse copy of the comments table.
+
+## Webhooks
+
+A team subscribes an endpoint to `issue.created`, `issue.updated`,
+`issue.state_changed`, or `comment.created`. Events come from the same activity
+spine the feed does — `ActivityRecorder` is the only thing that queues them, so
+there is no way to record a change without announcing it, and no way to announce
+something that isn't a recorded change.
+
+```json
+{
+  "id": "3f2a…",                     // the activity id: dedupe on this
+  "event": "issue.state_changed",
+  "createdAt": "2026-07-17T13:26:59Z",
+  "actor": "ana",
+  "team": { "id": "…", "key": "ENG" },
+  "issue": { "id": "…", "identifier": "ENG-42", "title": "…", "state": "Todo",
+             "priority": "High", "assignee": "ben" },
+  "change": { "type": "IssueStateChanged", "field": null, "from": "Backlog", "to": "Todo" }
+}
+```
+
+| Header | Meaning |
+|---|---|
+| `X-Tracer-Event` | `issue.state_changed` |
+| `X-Tracer-Delivery` | This envelope. Differs per subscriber and per redelivery |
+| `X-Tracer-Attempt` | 1, 2, 3… |
+| `X-Tracer-Signature` | `t=<unix>,v1=<hmac-sha256 hex>` |
+
+**Deliveries are at-least-once.** That's a promise to send, not to send once. The
+body's `id` is the *activity* id — stable across retries, identical for every
+subscriber — so it's what you deduplicate on. The delivery id is the envelope and
+is deliberately not in the body: if it were, two teams subscribed to one event
+would need two payloads and two signatures for the same fact.
+
+### The outbox
+
+The delivery row is written **in the same transaction as the change**, then sent
+afterwards by a background worker. That order is the whole design:
+
+- Sending *inside* the request would hold a database transaction open across a
+  stranger's network, make every write as slow as the slowest subscriber, and
+  leave a retry nowhere to live — a second attempt can't outlive the process that
+  died during the first.
+- Sending with *no row* loses the event entirely if the process dies.
+
+With a row, a delivery that hasn't succeeded is simply still due, including
+across a restart. The worker polls rather than being poked, because deliveries
+queued before a crash still need draining on the way back up and nothing is going
+to poke anyone about them.
+
+**This assumes one instance.** Two workers would both claim the same due rows and
+send them twice — the claim isn't atomic. At-least-once means that's not a
+correctness bug, but it's a real limit, and making it safe needs an atomic
+conditional claim or a row lock.
+
+### Signing
+
+The signed material is `{timestamp}.{payload}`, and the timestamp travels *inside*
+the signed header. Signing the body alone yields a signature valid forever:
+capture one request and replay it, perfectly signed, next year. A receiver
+rejects anything outside its tolerance — and because the timestamp is signed, an
+attacker can't just refresh it. The scheme is Stripe's on purpose; verification
+is written by people not thinking about webhooks, and a familiar `t=…,v1=…` is
+one they may already have code for. Compare in constant time.
+
+A webhook secret is stored **in the clear**, unlike an API key — and that
+difference is forced, not chosen. An API key is only ever *compared*, so a hash
+suffices; this one must *sign*, and a hash cannot sign. Since storage can't
+protect it, exposure is limited instead: it's returned when created or rotated,
+and never echoed by a read.
+
+### Retry and failure classification
+
+| Response | Class | Retried? |
+|---|---|---|
+| 2xx | — | Delivered |
+| 5xx, timeout, refused connection, DNS failure | `Transient` | Yes |
+| 429, 408 | `Transient` | Yes — "busy", not "no" |
+| 4xx | `Permanent` | No |
+| 3xx | `Permanent` | No — redirects are not followed |
+
+Backoff is exponential (10s, 20s, 40s, 80s; 5 attempts). Exponential rather than
+fixed because an endpoint failing under load doesn't need our retries arriving at
+a constant rate on top of it. And the transient/permanent split is the point:
+retrying a 404 a thousand times won't conjure the route into existence — it just
+turns one team's typo into load everyone pays for, and buries the real failures.
+Redirects aren't followed because a signed payload must not be forwarded to a
+host the team never registered.
+
+### SSRF
+
+A webhook URL is attacker-supplied input that **this server then fetches**, from
+inside the network. `http://169.254.169.254/…` is where cloud providers serve
+instance credentials; an internal admin service is a request nobody at the edge
+ever sees — and the delivery log obligingly reports the response back. So URLs
+must be `http`/`https` and must not resolve to loopback, private, link-local, or
+carrier-grade-NAT addresses.
+
+**The known gap, stated plainly:** a hostname is only checked when it's a literal
+IP. `evil.example.com` resolving to `127.0.0.1` passes, because the answer depends
+on DNS at request time, not check time — and those can differ (DNS rebinding).
+Closing it properly means resolving at send time and pinning the connection to
+the address that was checked, via a custom `SocketsHttpHandler.ConnectCallback`.
+There's a test asserting this gap exists, so nobody reads the policy and assumes
+otherwise.
 
 ## Search
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Tracer.Infrastructure;
 
@@ -10,9 +11,11 @@ using Tracer.Infrastructure;
 namespace Tracer.Infrastructure.Migrations
 {
     [DbContext(typeof(TracerDbContext))]
-    partial class TracerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260717135205_AddWebhooks")]
+    partial class AddWebhooks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -339,52 +342,6 @@ namespace Tracer.Infrastructure.Migrations
                     b.HasIndex("TeamId");
 
                     b.ToTable("Projects");
-                });
-
-            modelBuilder.Entity("Tracer.Domain.Entities.SavedView", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("FilterJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("OwnerUserId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Scope")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid>("TeamId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("UpdatedAt")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId");
-
-                    b.HasIndex("TeamId")
-                        .IsUnique()
-                        .HasFilter("\"IsDefault\" = 1");
-
-                    b.HasIndex("TeamId", "Scope", "OwnerUserId");
-
-                    b.ToTable("SavedViews");
                 });
 
             modelBuilder.Entity("Tracer.Domain.Entities.Team", b =>
@@ -737,24 +694,6 @@ namespace Tracer.Infrastructure.Migrations
                     b.Navigation("Team");
                 });
 
-            modelBuilder.Entity("Tracer.Domain.Entities.SavedView", b =>
-                {
-                    b.HasOne("Tracer.Domain.Entities.User", "Owner")
-                        .WithMany("SavedViews")
-                        .HasForeignKey("OwnerUserId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
-                    b.HasOne("Tracer.Domain.Entities.Team", "Team")
-                        .WithMany("SavedViews")
-                        .HasForeignKey("TeamId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Owner");
-
-                    b.Navigation("Team");
-                });
-
             modelBuilder.Entity("Tracer.Domain.Entities.TeamMembership", b =>
                 {
                     b.HasOne("Tracer.Domain.Entities.Team", "Team")
@@ -840,8 +779,6 @@ namespace Tracer.Infrastructure.Migrations
 
                     b.Navigation("Projects");
 
-                    b.Navigation("SavedViews");
-
                     b.Navigation("WorkflowStates");
                 });
 
@@ -850,8 +787,6 @@ namespace Tracer.Infrastructure.Migrations
                     b.Navigation("ApiKeys");
 
                     b.Navigation("Memberships");
-
-                    b.Navigation("SavedViews");
                 });
 
             modelBuilder.Entity("Tracer.Domain.Entities.Webhook", b =>

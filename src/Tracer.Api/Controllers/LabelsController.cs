@@ -124,7 +124,7 @@ public class LabelsController(TracerDbContext db, TeamAccess access, ActivityRec
         {
             issue.Labels.Add(label);
             issue.UpdatedAt = DateTimeOffset.UtcNow;
-            activity.Record(User, issue, ActivityType.IssueLabelAdded, newValue: label.Name);
+            await activity.RecordAsync(User, issue, ActivityType.IssueLabelAdded, newValue: label.Name);
             await db.SaveChangesAsync();
         }
 
@@ -148,7 +148,7 @@ public class LabelsController(TracerDbContext db, TeamAccess access, ActivityRec
 
         issue.Labels.Remove(label);
         issue.UpdatedAt = DateTimeOffset.UtcNow;
-        activity.Record(User, issue, ActivityType.IssueLabelRemoved, oldValue: label.Name);
+        await activity.RecordAsync(User, issue, ActivityType.IssueLabelRemoved, oldValue: label.Name);
         await db.SaveChangesAsync();
         return NoContent();
     }

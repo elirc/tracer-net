@@ -55,7 +55,7 @@ public class CommentsController(TracerDbContext db, TeamAccess access, ActivityR
         var comment = new Comment { IssueId = issueId, Author = User.Handle(), Body = request.Body };
         db.Comments.Add(comment);
         issue.UpdatedAt = DateTimeOffset.UtcNow;
-        activity.Record(User, issue, ActivityType.CommentCreated, newValue: Excerpt(comment.Body));
+        await activity.RecordAsync(User, issue, ActivityType.CommentCreated, newValue: Excerpt(comment.Body));
         await db.SaveChangesAsync();
 
         var dto = new CommentDto(comment.Id, comment.IssueId, comment.Author, comment.Body, comment.CreatedAt);
@@ -90,7 +90,7 @@ public class CommentsController(TracerDbContext db, TeamAccess access, ActivityR
 
         var issue = (await FindVisibleIssueAsync(comment.IssueId))!;
         comment.Body = request.Body;
-        activity.Record(User, issue, ActivityType.CommentUpdated, newValue: Excerpt(comment.Body));
+        await activity.RecordAsync(User, issue, ActivityType.CommentUpdated, newValue: Excerpt(comment.Body));
         await db.SaveChangesAsync();
 
         return Ok(new CommentDto(comment.Id, comment.IssueId, comment.Author, comment.Body, comment.CreatedAt));
@@ -111,7 +111,7 @@ public class CommentsController(TracerDbContext db, TeamAccess access, ActivityR
         }
 
         var issue = (await FindVisibleIssueAsync(comment.IssueId))!;
-        activity.Record(User, issue, ActivityType.CommentDeleted, oldValue: Excerpt(comment.Body));
+        await activity.RecordAsync(User, issue, ActivityType.CommentDeleted, oldValue: Excerpt(comment.Body));
         db.Comments.Remove(comment);
         await db.SaveChangesAsync();
         return NoContent();
