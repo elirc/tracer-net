@@ -25,7 +25,7 @@ namespace Tracer.Api.Controllers;
 /// </para>
 /// </summary>
 [ApiController]
-public class CommentsController(TracerDbContext db, TeamAccess access) : ControllerBase
+public class CommentsController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/issues/{issueId:guid}/comments")]
     public async Task<ActionResult<List<CommentDto>>> ListForIssue(Guid issueId)
@@ -55,6 +55,7 @@ public class CommentsController(TracerDbContext db, TeamAccess access) : Control
         var comment = new Comment { IssueId = issueId, Author = User.Handle(), Body = request.Body };
         db.Comments.Add(comment);
         issue.UpdatedAt = DateTimeOffset.UtcNow;
+        activity.Record(User, issue, ActivityType.CommentCreated, newValue: Excerpt(comment.Body));
         await db.SaveChangesAsync();
 
         var dto = new CommentDto(comment.Id, comment.IssueId, comment.Author, comment.Body, comment.CreatedAt);
@@ -87,7 +88,9 @@ public class CommentsController(TracerDbContext db, TeamAccess access) : Control
             return NotTheAuthor("edit");
         }
 
+        var issue = (await FindVisibleIssueAsync(comment.IssueId))!;
         comment.Body = request.Body;
+        activity.Record(User, issue, ActivityType.CommentUpdated, newValue: Excerpt(comment.Body));
         await db.SaveChangesAsync();
 
         return Ok(new CommentDto(comment.Id, comment.IssueId, comment.Author, comment.Body, comment.CreatedAt));
@@ -107,10 +110,24 @@ public class CommentsController(TracerDbContext db, TeamAccess access) : Control
             return NotTheAuthor("delete");
         }
 
+        var issue = (await FindVisibleIssueAsync(comment.IssueId))!;
+        activity.Record(User, issue, ActivityType.CommentDeleted, oldValue: Excerpt(comment.Body));
         db.Comments.Remove(comment);
         await db.SaveChangesAsync();
         return NoContent();
     }
+
+    /// <summary>
+    /// A short, bounded excerpt for the feed. The log stores what was said, not
+    /// the whole of it: comment bodies run to ten thousand characters, and an
+    /// append-only table that keeps a full copy of every edit of every one of
+    /// them stops being an audit log and becomes a second, worse copy of the
+    /// comments table.
+    /// </summary>
+    private static string Excerpt(string body) =>
+        body.Length <= ExcerptLength ? body : body[..ExcerptLength] + "…";
+
+    private const int ExcerptLength = 120;
 
     /// <summary>The issue, if the caller's teams reach it; otherwise null, which callers report as 404.</summary>
     private async Task<Issue?> FindVisibleIssueAsync(Guid issueId)

@@ -8,7 +8,7 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class LabelsController(TracerDbContext db, TeamAccess access) : ControllerBase
+public class LabelsController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/labels")]
     public async Task<ActionResult<List<TeamLabelDto>>> ListForTeam(Guid teamId)
@@ -118,10 +118,13 @@ public class LabelsController(TracerDbContext db, TeamAccess access) : Controlle
             return ValidationProblem(title: "Label belongs to a different team.");
         }
 
+        // Guarded so that re-attaching an existing label stays idempotent in the
+        // feed too: an endpoint that is a no-op should not manufacture history.
         if (issue.Labels.All(l => l.Id != labelId))
         {
             issue.Labels.Add(label);
             issue.UpdatedAt = DateTimeOffset.UtcNow;
+            activity.Record(User, issue, ActivityType.IssueLabelAdded, newValue: label.Name);
             await db.SaveChangesAsync();
         }
 
@@ -145,6 +148,7 @@ public class LabelsController(TracerDbContext db, TeamAccess access) : Controlle
 
         issue.Labels.Remove(label);
         issue.UpdatedAt = DateTimeOffset.UtcNow;
+        activity.Record(User, issue, ActivityType.IssueLabelRemoved, oldValue: label.Name);
         await db.SaveChangesAsync();
         return NoContent();
     }
