@@ -42,4 +42,7 @@ public class User
 
     public List<ApiKey> ApiKeys { get; set; } = [];
     public List<TeamMembership> Memberships { get; set; } = [];
+
+    /// <summary>Personal saved views. Team views have no owner, so they are not listed here.</summary>
+    public List<SavedView> SavedViews { get; set; } = [];
 }

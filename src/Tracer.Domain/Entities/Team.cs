@@ -17,5 +17,6 @@ public class Team
     public List<Issue> Issues { get; set; } = [];
     public List<Label> Labels { get; set; } = [];
     public List<Cycle> Cycles { get; set; } = [];
+    public List<SavedView> SavedViews { get; set; } = [];
     public List<TeamMembership> Memberships { get; set; } = [];
 }
