@@ -246,38 +246,13 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
     /// records nothing, because nothing happened; a feed that says "ana updated
     /// this" fourteen times for one edit is a feed people stop reading.
     /// </summary>
-    private async Task RecordEditsAsync(
+    private Task RecordEditsAsync(
         Issue issue,
         string? oldTitle,
         string? oldDescription,
         IssuePriority oldPriority,
-        int? oldEstimate)
-    {
-        if (!string.Equals(oldTitle, issue.Title, StringComparison.Ordinal))
-        {
-            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "title", oldTitle, issue.Title);
-        }
-
-        if (!string.Equals(oldDescription, issue.Description, StringComparison.Ordinal))
-        {
-            // The values themselves are left out: a description can run to
-            // kilobytes, and an audit log is not a place to store two copies of
-            // it. That it changed, by whom, and when is the useful part.
-            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "description");
-        }
-
-        if (oldPriority != issue.Priority)
-        {
-            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "priority",
-                oldPriority.ToString(), issue.Priority.ToString());
-        }
-
-        if (oldEstimate != issue.Estimate)
-        {
-            await activity.RecordAsync(User, issue, ActivityType.IssueUpdated, "estimate",
-                oldEstimate?.ToString(), issue.Estimate?.ToString());
-        }
-    }
+        int? oldEstimate) =>
+        activity.RecordFieldEditsAsync(User, issue, oldTitle, oldDescription, oldPriority, oldEstimate);
 
     /// <summary>Renders an issue id as "ENG-42" for the log, or null when there was no issue.</summary>
     private async Task<string?> IdentifierOfAsync(Guid? issueId)

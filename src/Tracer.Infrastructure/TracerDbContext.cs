@@ -97,7 +97,18 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
         {
             issue.Property(i => i.Title).HasMaxLength(500);
             issue.Property(i => i.Assignee).HasMaxLength(100);
+            issue.Property(i => i.ExternalId).HasMaxLength(200);
             issue.HasIndex(i => new { i.TeamId, i.Number }).IsUnique();
+
+            // An external id names one issue in a team, or none. The filter is
+            // what makes that true without also claiming that the many issues
+            // never imported from anywhere are all "the same" null-ided issue —
+            // and it says so explicitly rather than leaning on SQLite's habit of
+            // treating NULLs as distinct in a unique index, which is a provider
+            // quirk to depend on rather than a rule to state.
+            issue.HasIndex(i => new { i.TeamId, i.ExternalId })
+                .IsUnique()
+                .HasFilter("\"ExternalId\" IS NOT NULL");
 
             // Search filters and board reads are always team-scoped.
             issue.HasIndex(i => new { i.TeamId, i.Assignee });

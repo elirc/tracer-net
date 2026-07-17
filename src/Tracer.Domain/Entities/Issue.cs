@@ -49,6 +49,19 @@ public class Issue
     public Issue? Parent { get; set; }
     public List<Issue> Children { get; set; } = [];
 
+    /// <summary>
+    /// This issue's identity in whatever system it was imported from; null for an
+    /// issue that was created here.
+    ///
+    /// <para>
+    /// It is what makes importing the same payload twice update rather than
+    /// duplicate. Unique per team — an external id names one issue or none — but
+    /// only per team: two teams importing from two different trackers may both
+    /// receive an issue called "PROJ-1", and they are not the same issue.
+    /// </para>
+    /// </summary>
+    public string? ExternalId { get; set; }
+
     /// <summary>Fractional rank used to order issues within a state column.</summary>
     public double Position { get; set; }
 

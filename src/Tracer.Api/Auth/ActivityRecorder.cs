@@ -87,4 +87,50 @@ public sealed class ActivityRecorder(TracerDbContext db, WebhookOutbox webhooks)
         await webhooks.EnqueueAsync(activity, issue);
         return activity;
     }
+
+    /// <summary>
+    /// Records the plain field edits between an issue's previous values and its
+    /// current ones. Call it after mutating the entity, with what it held before.
+    ///
+    /// <para>
+    /// This lives here rather than in a controller because there is now more than
+    /// one way to edit an issue — a PUT and a bulk import — and "what counts as a
+    /// change worth logging" must not have two answers. A private copy in each
+    /// caller is how a feed ends up reporting a title edit made through one route
+    /// and staying silent about the identical edit made through the other.
+    /// </para>
+    /// </summary>
+    public async Task RecordFieldEditsAsync(
+        ClaimsPrincipal user,
+        Issue issue,
+        string? oldTitle,
+        string? oldDescription,
+        IssuePriority oldPriority,
+        int? oldEstimate)
+    {
+        if (!string.Equals(oldTitle, issue.Title, StringComparison.Ordinal))
+        {
+            await RecordAsync(user, issue, ActivityType.IssueUpdated, "title", oldTitle, issue.Title);
+        }
+
+        if (!string.Equals(oldDescription, issue.Description, StringComparison.Ordinal))
+        {
+            // The values themselves are left out: a description can run to
+            // kilobytes, and an audit log is not a place to store two copies of
+            // it. That it changed, by whom, and when is the useful part.
+            await RecordAsync(user, issue, ActivityType.IssueUpdated, "description");
+        }
+
+        if (oldPriority != issue.Priority)
+        {
+            await RecordAsync(user, issue, ActivityType.IssueUpdated, "priority",
+                oldPriority.ToString(), issue.Priority.ToString());
+        }
+
+        if (oldEstimate != issue.Estimate)
+        {
+            await RecordAsync(user, issue, ActivityType.IssueUpdated, "estimate",
+                oldEstimate?.ToString(), issue.Estimate?.ToString());
+        }
+    }
 }
