@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
 using Tracer.Domain;
 using Tracer.Domain.Entities;
@@ -8,7 +9,7 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class IssuesController(TracerDbContext db) : ControllerBase
+public class IssuesController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     /// <summary>Escape character for LIKE patterns; free-text input may contain % or _.</summary>
     private const string LikeEscape = "\\";
@@ -16,11 +17,12 @@ public class IssuesController(TracerDbContext db) : ControllerBase
     [HttpGet("api/teams/{teamId:guid}/issues")]
     public async Task<ActionResult<List<IssueDto>>> ListForTeam(Guid teamId)
     {
-        var team = await db.Teams.FindAsync(teamId);
-        if (team is null)
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
+
+        var team = await db.Teams.FindAsync(teamId);
 
         var issues = await db.Issues
             .Where(i => i.TeamId == teamId)
@@ -30,7 +32,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .ThenBy(i => i.Position)
             .ToListAsync();
 
-        return Ok(issues.Select(i => i.ToDto(team.Key, i.State!.Name)).ToList());
+        return Ok(issues.Select(i => i.ToDto(team!.Key, i.State!.Name)).ToList());
     }
 
     /// <summary>
@@ -41,6 +43,16 @@ public class IssuesController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<IssueDto>>> Search([FromQuery] IssueSearchQuery query)
     {
         var issues = db.Issues.AsQueryable();
+
+        // Scope before filtering, not after paging. Search is the one endpoint
+        // that reads across teams without the caller naming an id, so this
+        // filter — not a check on the way out — is what keeps another team's
+        // issues out of the results, and out of `total` along with them.
+        if (!User.IsAdmin())
+        {
+            var mine = await access.MemberTeamIdsAsync(User);
+            issues = issues.Where(i => mine.Contains(i.TeamId));
+        }
 
         if (query.TeamId is { } teamId)
         {
@@ -107,11 +119,12 @@ public class IssuesController(TracerDbContext db) : ControllerBase
     [HttpPost("api/teams/{teamId:guid}/issues")]
     public async Task<ActionResult<IssueDto>> Create(Guid teamId, CreateIssueRequest request)
     {
-        var team = await db.Teams.FindAsync(teamId);
-        if (team is null)
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
+
+        var team = await db.Teams.FindAsync(teamId);
 
         WorkflowState? state;
         if (request.StateId is { } stateId)
@@ -168,7 +181,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
         db.Issues.Add(issue);
         await db.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(Get), new { id = issue.Id }, issue.ToDto(team.Key, state.Name));
+        return CreatedAtAction(nameof(Get), new { id = issue.Id }, issue.ToDto(team!.Key, state.Name));
     }
 
     [HttpGet("api/issues/{id:guid}")]
@@ -179,7 +192,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .Include(i => i.State)
             .Include(i => i.Labels)
             .SingleOrDefaultAsync(i => i.Id == id);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", id);
         }
@@ -195,7 +208,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .Include(i => i.State)
             .Include(i => i.Labels)
             .SingleOrDefaultAsync(i => i.Id == id);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", id);
         }
@@ -238,7 +251,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .Include(i => i.State)
             .Include(i => i.Labels)
             .SingleOrDefaultAsync(i => i.Id == id);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", id);
         }
@@ -286,7 +299,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .Include(i => i.State)
             .Include(i => i.Labels)
             .SingleOrDefaultAsync(i => i.Id == id);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", id);
         }
@@ -387,7 +400,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var issue = await db.Issues.FindAsync(id);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", id);
         }

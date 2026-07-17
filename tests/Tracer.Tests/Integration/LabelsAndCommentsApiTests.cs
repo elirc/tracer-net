@@ -9,7 +9,7 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
 
     public LabelsAndCommentsApiTests(TracerApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateAdminClient();
     }
 
     private sealed record TeamPayload(Guid Id, string Key);
@@ -110,18 +110,19 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
         var team = await CreateTeamAsync("Com A", "CMA");
         var issue = await CreateIssueAsync(team.Id, "discussed");
 
-        var first = await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments",
-            new { author = "ana", body = "first!" });
+        var first = await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments", new { body = "first!" });
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         var firstComment = await first.Content.ReadFromJsonAsync<CommentPayload>();
+        // Authorship comes from the credential, not from the request body.
+        Assert.Equal("ana", firstComment!.Author);
 
-        await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments", new { author = "ben", body = "second" });
+        await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments", new { body = "second" });
 
         var comments = await _client.GetFromJsonAsync<List<CommentPayload>>($"/api/issues/{issue.Id}/comments");
         Assert.Equal(2, comments!.Count);
         Assert.Equal(["first!", "second"], comments.Select(c => c.Body).ToArray());
 
-        var updated = await _client.PutAsJsonAsync($"/api/comments/{firstComment!.Id}", new { body = "edited" });
+        var updated = await _client.PutAsJsonAsync($"/api/comments/{firstComment.Id}", new { body = "edited" });
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
 
         var deleted = await _client.DeleteAsync($"/api/comments/{firstComment.Id}");
@@ -135,7 +136,7 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
     public async Task Comment_on_unknown_issue_returns_404()
     {
         var response = await _client.PostAsJsonAsync($"/api/issues/{Guid.NewGuid()}/comments",
-            new { author = "ghost", body = "boo" });
+            new { body = "boo" });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -146,7 +147,7 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
         var team = await CreateTeamAsync("Com B", "CMB");
         var issue = await CreateIssueAsync(team.Id, "strict");
 
-        var response = await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments", new { author = "ana" });
+        var response = await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments", new { });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }

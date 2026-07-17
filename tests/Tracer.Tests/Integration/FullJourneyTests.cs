@@ -15,7 +15,7 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
 
     public FullJourneyTests(TracerApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateAdminClient();
     }
 
     private sealed record TeamPayload(Guid Id, string Name, string Key);
@@ -109,7 +109,7 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
 
         await ReadAsync<CommentPayload>(
             await _client.PostAsJsonAsync($"/api/issues/{feature.Id}/comments",
-                new { author = "ben", body = "Blocked on the copy review." }),
+                new { body = "Blocked on the copy review." }),
             HttpStatusCode.Created);
 
         var labelled = await _client.GetFromJsonAsync<IssuePayload>($"/api/issues/{feature.Id}");

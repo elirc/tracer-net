@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
 using Tracer.Domain;
 using Tracer.Domain.Entities;
@@ -8,7 +9,7 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class CyclesController(TracerDbContext db) : ControllerBase
+public class CyclesController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     /// <summary>
     /// Lists a team's cycles, oldest first. Filtering by <paramref name="status"/>
@@ -20,7 +21,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     [HttpGet("api/teams/{teamId:guid}/cycles")]
     public async Task<ActionResult<List<CycleDto>>> ListForTeam(Guid teamId, [FromQuery] CycleStatus? status)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -43,7 +44,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     [HttpPost("api/teams/{teamId:guid}/cycles")]
     public async Task<ActionResult<CycleDto>> Create(Guid teamId, CreateCycleRequest request)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -80,7 +81,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<CycleDto>> Get(Guid id)
     {
         var cycle = await db.Cycles.FindAsync(id);
-        if (cycle is null)
+        if (cycle is null || !await access.CanAccessTeamAsync(User, cycle.TeamId))
         {
             return this.NotFoundProblem("Cycle", id);
         }
@@ -92,7 +93,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<CycleDto>> Update(Guid id, UpdateCycleRequest request)
     {
         var cycle = await db.Cycles.FindAsync(id);
-        if (cycle is null)
+        if (cycle is null || !await access.CanAccessTeamAsync(User, cycle.TeamId))
         {
             return this.NotFoundProblem("Cycle", id);
         }
@@ -125,7 +126,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var cycle = await db.Cycles.FindAsync(id);
-        if (cycle is null)
+        if (cycle is null || !await access.CanAccessTeamAsync(User, cycle.TeamId))
         {
             return this.NotFoundProblem("Cycle", id);
         }
@@ -139,7 +140,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<CycleSummaryDto>> Summary(Guid id)
     {
         var cycle = await db.Cycles.FindAsync(id);
-        if (cycle is null)
+        if (cycle is null || !await access.CanAccessTeamAsync(User, cycle.TeamId))
         {
             return this.NotFoundProblem("Cycle", id);
         }

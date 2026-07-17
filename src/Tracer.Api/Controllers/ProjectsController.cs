@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
@@ -7,12 +8,12 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class ProjectsController(TracerDbContext db) : ControllerBase
+public class ProjectsController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/projects")]
     public async Task<ActionResult<List<ProjectDto>>> ListForTeam(Guid teamId)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -28,7 +29,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
     [HttpPost("api/teams/{teamId:guid}/projects")]
     public async Task<ActionResult<ProjectDto>> Create(Guid teamId, CreateProjectRequest request)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -45,7 +46,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<ProjectDto>> Get(Guid id)
     {
         var project = await db.Projects.FindAsync(id);
-        if (project is null)
+        if (project is null || !await access.CanAccessTeamAsync(User, project.TeamId))
         {
             return this.NotFoundProblem("Project", id);
         }
@@ -57,7 +58,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<ProjectDto>> Update(Guid id, UpdateProjectRequest request)
     {
         var project = await db.Projects.FindAsync(id);
-        if (project is null)
+        if (project is null || !await access.CanAccessTeamAsync(User, project.TeamId))
         {
             return this.NotFoundProblem("Project", id);
         }
@@ -73,7 +74,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var project = await db.Projects.FindAsync(id);
-        if (project is null)
+        if (project is null || !await access.CanAccessTeamAsync(User, project.TeamId))
         {
             return this.NotFoundProblem("Project", id);
         }

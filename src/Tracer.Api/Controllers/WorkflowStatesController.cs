@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
@@ -7,12 +8,12 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class WorkflowStatesController(TracerDbContext db) : ControllerBase
+public class WorkflowStatesController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/states")]
     public async Task<ActionResult<List<WorkflowStateDto>>> ListForTeam(Guid teamId)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -28,7 +29,7 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
     [HttpPost("api/teams/{teamId:guid}/states")]
     public async Task<ActionResult<WorkflowStateDto>> Create(Guid teamId, CreateWorkflowStateRequest request)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -69,7 +70,7 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<WorkflowStateDto>> GetById(Guid id)
     {
         var state = await db.WorkflowStates.FindAsync(id);
-        if (state is null)
+        if (state is null || !await access.CanAccessTeamAsync(User, state.TeamId))
         {
             return this.NotFoundProblem("Workflow state", id);
         }
@@ -81,7 +82,7 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<WorkflowStateDto>> Update(Guid id, UpdateWorkflowStateRequest request)
     {
         var state = await db.WorkflowStates.FindAsync(id);
-        if (state is null)
+        if (state is null || !await access.CanAccessTeamAsync(User, state.TeamId))
         {
             return this.NotFoundProblem("Workflow state", id);
         }
@@ -118,7 +119,7 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var state = await db.WorkflowStates.FindAsync(id);
-        if (state is null)
+        if (state is null || !await access.CanAccessTeamAsync(User, state.TeamId))
         {
             return this.NotFoundProblem("Workflow state", id);
         }

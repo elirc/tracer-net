@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
@@ -7,12 +8,12 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class LabelsController(TracerDbContext db) : ControllerBase
+public class LabelsController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/labels")]
     public async Task<ActionResult<List<TeamLabelDto>>> ListForTeam(Guid teamId)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -28,7 +29,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     [HttpPost("api/teams/{teamId:guid}/labels")]
     public async Task<ActionResult<TeamLabelDto>> Create(Guid teamId, CreateLabelRequest request)
     {
-        if (!await db.Teams.AnyAsync(t => t.Id == teamId))
+        if (!await access.CanAccessTeamAsync(User, teamId))
         {
             return this.NotFoundProblem("Team", teamId);
         }
@@ -52,7 +53,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<TeamLabelDto>> GetById(Guid id)
     {
         var label = await db.Labels.FindAsync(id);
-        if (label is null)
+        if (label is null || !await access.CanAccessTeamAsync(User, label.TeamId))
         {
             return this.NotFoundProblem("Label", id);
         }
@@ -64,7 +65,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     public async Task<ActionResult<TeamLabelDto>> Update(Guid id, UpdateLabelRequest request)
     {
         var label = await db.Labels.FindAsync(id);
-        if (label is null)
+        if (label is null || !await access.CanAccessTeamAsync(User, label.TeamId))
         {
             return this.NotFoundProblem("Label", id);
         }
@@ -87,7 +88,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var label = await db.Labels.FindAsync(id);
-        if (label is null)
+        if (label is null || !await access.CanAccessTeamAsync(User, label.TeamId))
         {
             return this.NotFoundProblem("Label", id);
         }
@@ -101,7 +102,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Attach(Guid issueId, Guid labelId)
     {
         var issue = await db.Issues.Include(i => i.Labels).SingleOrDefaultAsync(i => i.Id == issueId);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", issueId);
         }
@@ -131,7 +132,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     public async Task<IActionResult> Detach(Guid issueId, Guid labelId)
     {
         var issue = await db.Issues.Include(i => i.Labels).SingleOrDefaultAsync(i => i.Id == issueId);
-        if (issue is null)
+        if (issue is null || !await access.CanAccessTeamAsync(User, issue.TeamId))
         {
             return this.NotFoundProblem("Issue", issueId);
         }

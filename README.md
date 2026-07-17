@@ -31,13 +31,76 @@ dotnet run --project src/Tracer.Api
 ```
 
 In `Development` the app applies migrations and seeds sample data on startup
-(two teams, `ENG` and `DES`, with projects, labels, issues, comments, and a live
-cycle), so `dotnet run` gives you something to query immediately:
+(two teams, `ENG` and `DES`, with users, projects, labels, issues, comments, and
+a live cycle), so `dotnet run` gives you something to query immediately. Every
+endpoint except `/api/health` needs an API key, and the seed creates three:
+
+| Key | User | Role | Sees |
+|---|---|---|---|
+| `trk_dev_admin_ana` | `ana` | Admin | every team |
+| `trk_dev_member_ben` | `ben` | Member | `ENG` |
+| `trk_dev_member_dana` | `dana` | Member | `DES` |
 
 ```bash
-curl http://localhost:5284/api/teams
-curl "http://localhost:5284/api/issues?q=rate%20limiting"
+curl http://localhost:5284/api/health                      # no key needed
+curl -H 'X-Api-Key: trk_dev_admin_ana' http://localhost:5284/api/teams
+curl -H 'X-Api-Key: trk_dev_member_dana' http://localhost:5284/api/teams  # only DES
+curl -H 'X-Api-Key: trk_dev_admin_ana' \
+  "http://localhost:5284/api/issues?q=rate%20limiting"
 ```
+
+These keys are hard-coded precisely because the seeder only runs in
+`Development`. A real deployment mints its first admin key out of band and every
+one after that through the API.
+
+## Authentication & authorization
+
+Present a key as `X-Api-Key: trk_…`. Everything except `/api/health` requires
+one — that is the *default*, not a per-controller decision: the authorization
+fallback policy denies any endpoint that does not explicitly opt out, so a new
+controller is protected the moment it exists rather than the moment somebody
+remembers `[Authorize]`.
+
+Two questions decide every request, and they are deliberately separate:
+
+- **Role** — `Admin` or `Member`, a property of the *user*. Admins administer
+  the workspace: teams, users, keys.
+- **Membership** — which teams a user is on, a property of the *pair*. This is
+  the whole of a member's reach; an admin sees every team without a membership.
+
+Team-level configuration (workflow, labels, projects, cycles, issues) is done by
+a team's own members. A workspace where only admins can add a label is a
+workspace where admins are a ticket queue.
+
+### What a denial looks like
+
+| Situation | Status | Why |
+|---|---|---|
+| No key, unknown key, revoked key | `401` | |
+| Right key, wrong role | `403` | You can see the thing; you lack the role. Saying so discloses nothing |
+| Right key, someone else's team | `404` | |
+| Right key, someone else's comment | `403` | You can already read it — a 404 would just be confusing |
+
+**A foreign team is a 404, not a 403.** A 403 would confirm that the id names a
+real team, and that difference is enough to map a workspace without reading a
+single row: probe ids, keep the ones that answer differently. So existence and
+permission collapse into one answer — a team you are not on is reported exactly
+like a team that never existed. The cost is that a member who fat-fingers their
+own team id is told "not found" rather than "not allowed", which is the right
+trade and is why the rule lives in one place (`TeamAccess`) rather than being
+re-decided per controller.
+
+The same rule explains an apparent inconsistency in the key routes:
+`/api/users/{userId}/api-keys` answers `403` because it checks permission
+*before* looking anything up — a member gets the same answer for any id but
+their own, real or not, so nothing leaks. `/api/api-keys/{id}` answers `404`,
+because there a `403` would only ever be reachable for a key that exists.
+
+Tokens are stored as SHA-256 hashes and shown exactly once, at creation. SHA-256
+rather than bcrypt on purpose: slow hashes defend *low-entropy human-chosen*
+secrets against brute force, and a minted token carries 192 bits from a CSPRNG.
+There is no keyspace to search, so a work factor buys nothing — while costing an
+expensive hash on every authenticated request, which is itself a DoS lever.
 
 ## Endpoints
 
@@ -45,17 +108,42 @@ curl "http://localhost:5284/api/issues?q=rate%20limiting"
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Liveness probe |
+| `GET` | `/api/health` | Liveness probe — the only anonymous endpoint |
+
+### Identity
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/me` | Who you are and which teams your key reaches |
+
+### Users & keys
+
+Admin-only, except where noted.
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/users` | List users |
+| `POST` | `/api/users` | Create a user |
+| `GET` | `/api/users/{id}` | Get a user |
+| `PUT` | `/api/users/{id}` | Rename a user or change their role; refuses (409) to remove the last admin |
+| `DELETE` | `/api/users/{id}` | Delete a user; refuses (409) to remove the last admin |
+| `PUT` | `/api/users/{userId}/teams/{teamId}` | Put a user on a team (idempotent) |
+| `DELETE` | `/api/users/{userId}/teams/{teamId}` | Take a user off a team |
+| `GET` | `/api/users/{userId}/api-keys` | List a user's keys — **self or admin** |
+| `POST` | `/api/users/{userId}/api-keys` | Mint a key; the only response carrying a raw token — **self or admin** |
+| `GET` | `/api/api-keys/{id}` | Get a key's metadata — **owner or admin** |
+| `DELETE` | `/api/api-keys/{id}` | Revoke a key (idempotent); the row survives for the audit trail — **owner or admin** |
 
 ### Teams
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/api/teams` | List all teams |
-| `POST` | `/api/teams` | Create a team; seeds it with the default five-state workflow |
+| `GET` | `/api/teams` | List the teams you can see (all of them, for an admin) |
+| `POST` | `/api/teams` | **Admin.** Create a team; seeds it with the default five-state workflow |
 | `GET` | `/api/teams/{id}` | Get a team |
-| `PUT` | `/api/teams/{id}` | Rename a team or change its key |
-| `DELETE` | `/api/teams/{id}` | Delete a team and everything it owns |
+| `GET` | `/api/teams/{teamId}/members` | The team's roster |
+| `PUT` | `/api/teams/{id}` | **Admin.** Rename a team or change its key |
+| `DELETE` | `/api/teams/{id}` | **Admin.** Delete a team and everything it owns |
 
 ### Projects
 
@@ -107,10 +195,16 @@ curl "http://localhost:5284/api/issues?q=rate%20limiting"
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/api/issues/{issueId}/comments` | List an issue's comments, oldest first |
-| `POST` | `/api/issues/{issueId}/comments` | Comment on an issue |
+| `POST` | `/api/issues/{issueId}/comments` | Comment on an issue; the author is your credential, not a field |
 | `GET` | `/api/comments/{id}` | Get a comment |
-| `PUT` | `/api/comments/{id}` | Edit a comment's body |
-| `DELETE` | `/api/comments/{id}` | Delete a comment |
+| `PUT` | `/api/comments/{id}` | Edit a comment's body — **author or admin** |
+| `DELETE` | `/api/comments/{id}` | Delete a comment — **author or admin** |
+
+A comment's `author` is taken from the authenticated key. It used to be a field
+on the request, which meant anyone could post as anyone — before there was a
+caller to ask, the API had no way to know better. The field is now *gone* from
+the contract rather than ignored: silently overwriting it would be worse, since
+the client would be told its impersonation had worked.
 
 ### Cycles
 
@@ -230,7 +324,9 @@ a controller ever runs — is [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807)
 | Status | Means |
 |---|---|
 | `400` | The request is malformed, or points at something that isn't the caller's to point at (another team's state, a label from another team) |
-| `404` | The addressed resource does not exist |
+| `401` | No key, an unknown key, or a revoked one |
+| `403` | Authenticated, but this needs a role you don't hold — or it isn't yours to edit |
+| `404` | The addressed resource does not exist, **or belongs to a team you're not on** |
 | `409` | The request is well-formed but collides with existing data (a duplicate team key, an overlapping cycle) |
 | `422` | The request is well-formed and coherent, but a domain rule forbids the outcome (an illegal transition, a backwards date range) |
 

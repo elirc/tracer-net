@@ -9,7 +9,7 @@ public class WorkflowStatesApiTests : IClassFixture<TracerApiFactory>
 
     public WorkflowStatesApiTests(TracerApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateAdminClient();
     }
 
     private sealed record TeamPayload(Guid Id, string Name, string Key);
