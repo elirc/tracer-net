@@ -28,6 +28,9 @@ public class Issue
     /// <summary>Story-point estimate; null when unestimated.</summary>
     public int? Estimate { get; set; }
 
+    /// <summary>Free-form handle of the assignee; null when unassigned.</summary>
+    public string? Assignee { get; set; }
+
     public Guid StateId { get; set; }
     public WorkflowState? State { get; set; }
 

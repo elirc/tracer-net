@@ -46,7 +46,12 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
         modelBuilder.Entity<Issue>(issue =>
         {
             issue.Property(i => i.Title).HasMaxLength(500);
+            issue.Property(i => i.Assignee).HasMaxLength(100);
             issue.HasIndex(i => new { i.TeamId, i.Number }).IsUnique();
+
+            // Search filters and board reads are always team-scoped.
+            issue.HasIndex(i => new { i.TeamId, i.Assignee });
+            issue.HasIndex(i => new { i.StateId, i.Position });
 
             issue.HasOne(i => i.Team)
                 .WithMany(t => t.Issues)
