@@ -23,12 +23,13 @@ namespace Tracer.Api.Controllers;
 public class UsersController(TracerDbContext db) : ControllerBase
 {
     [HttpGet("api/users")]
-    public async Task<ActionResult<List<UserDto>>> List()
+    public async Task<ActionResult<PagedResult<UserDto>>> List([FromQuery] PageQuery paging)
     {
         var users = await db.Users
             .OrderBy(u => u.Handle)
+            .ThenBy(u => u.Id)
             .Select(u => new UserDto(u.Id, u.Handle, u.Name, u.Role, u.CreatedAt))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(users);
     }
 

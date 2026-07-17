@@ -40,7 +40,7 @@ public class IssueRelationsApiTests : IClassFixture<TracerApiFactory>
         await _client.PostAsJsonAsync($"/api/issues/{issueId}/relations", new { kind, issueId = otherId });
 
     private async Task<List<RelationPayload>> RelationsAsync(Guid issueId) =>
-        (await _client.GetFromJsonAsync<List<RelationPayload>>($"/api/issues/{issueId}/relations"))!;
+        (await _client.GetListAsync<RelationPayload>($"/api/issues/{issueId}/relations"))!;
 
     // ---- Storing one row per fact ----
 
@@ -400,7 +400,7 @@ public class IssueRelationsApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task Another_teams_issue_relations_are_out_of_reach()
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         var eng = teams!.Single(t => t.Key == "ENG");
         var issue = await CreateIssueAsync(eng.Id, "engineering only");
         var foreigner = _factory.CreateDesMemberClient();

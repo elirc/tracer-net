@@ -22,7 +22,7 @@ public class IssuesApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> GetTeamAsync(string key)
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 
@@ -31,7 +31,7 @@ public class IssuesApiTests : IClassFixture<TracerApiFactory>
     {
         var eng = await GetTeamAsync("ENG");
 
-        var issues = await _client.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{eng.Id}/issues");
+        var issues = await _client.GetListAsync<IssuePayload>($"/api/teams/{eng.Id}/issues");
 
         Assert.NotNull(issues);
         // Other tests in this class may add issues (shared fixture), so assert on the seeds only.

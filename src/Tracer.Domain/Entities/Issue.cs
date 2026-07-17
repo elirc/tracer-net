@@ -69,6 +69,15 @@ public class Issue
     /// <summary>Fractional rank used to order issues within a state column.</summary>
     public double Position { get; set; }
 
+    /// <summary>
+    /// Optimistic-concurrency token, rotated on every update. Configured as a
+    /// concurrency token, so EF writes <c>WHERE Version = &lt;the value we read&gt;</c>
+    /// and a second writer whose read is now stale updates zero rows and is told
+    /// so — the difference between "last write wins" silently clobbering a change
+    /// and a clean 409 that says the issue moved underneath you.
+    /// </summary>
+    public Guid Version { get; set; } = Guid.NewGuid();
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 

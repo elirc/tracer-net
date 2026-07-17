@@ -95,7 +95,7 @@ public class IssueSubscriptionsController(TracerDbContext db, TeamAccess access)
 
     /// <summary>Everyone watching this issue. Visible to anyone who can see the issue.</summary>
     [HttpGet("api/issues/{issueId:guid}/subscribers")]
-    public async Task<ActionResult<List<IssueSubscriberDto>>> Subscribers(Guid issueId)
+    public async Task<ActionResult<PagedResult<IssueSubscriberDto>>> Subscribers(Guid issueId, [FromQuery] PageQuery paging)
     {
         if (await FindVisibleIssueAsync(issueId) is null)
         {
@@ -105,8 +105,9 @@ public class IssueSubscriptionsController(TracerDbContext db, TeamAccess access)
         var subscribers = await db.IssueSubscriptions
             .Where(s => s.IssueId == issueId)
             .OrderBy(s => s.User!.Handle)
+            .ThenBy(s => s.UserId)
             .Select(s => new IssueSubscriberDto(s.UserId, s.User!.Handle, s.User.Name, s.Reason))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
 
         return Ok(subscribers);
     }

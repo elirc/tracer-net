@@ -24,7 +24,8 @@ public record IssueDto(
     double Position,
     IReadOnlyList<LabelDto> Labels,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    Guid Version);
 
 public record CreateIssueRequest(
     [Required, MaxLength(500)] string Title,
@@ -40,6 +41,11 @@ public record CreateIssueRequest(
 
 // ParentId follows ProjectId and CycleId: this is a PUT, so omitting it means
 // "no parent" and un-nests the issue. Sending it means "this parent".
+//
+// Version is the issue's optimistic-concurrency token as the client last read it.
+// Supply it and the update is refused with 409 if the issue changed in the
+// meantime; omit it and the write still cannot clobber a concurrent in-flight
+// edit, because EF checks the token it read either way.
 public record UpdateIssueRequest(
     [Required, MaxLength(500)] string Title,
     string? Description,
@@ -49,7 +55,8 @@ public record UpdateIssueRequest(
     Guid? CycleId = null,
     Guid? MilestoneId = null,
     [MaxLength(100)] string? Assignee = null,
-    Guid? ParentId = null);
+    Guid? ParentId = null,
+    Guid? Version = null);
 
 public static class IssueMappings
 {
@@ -72,5 +79,6 @@ public static class IssueMappings
         issue.Position,
         issue.Labels.Select(l => new LabelDto(l.Id, l.Name, l.Color)).ToList(),
         issue.CreatedAt,
-        issue.UpdatedAt);
+        issue.UpdatedAt,
+        issue.Version);
 }

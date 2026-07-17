@@ -11,7 +11,7 @@ namespace Tracer.Api.Controllers;
 public class LabelsController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/labels")]
-    public async Task<ActionResult<List<TeamLabelDto>>> ListForTeam(Guid teamId)
+    public async Task<ActionResult<PagedResult<TeamLabelDto>>> ListForTeam(Guid teamId, [FromQuery] PageQuery paging)
     {
         if (!await access.CanAccessTeamAsync(User, teamId))
         {
@@ -21,8 +21,9 @@ public class LabelsController(TracerDbContext db, TeamAccess access, ActivityRec
         var labels = await db.Labels
             .Where(l => l.TeamId == teamId)
             .OrderBy(l => l.Name)
+            .ThenBy(l => l.Id)
             .Select(l => new TeamLabelDto(l.Id, l.TeamId, l.Name, l.Color))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(labels);
     }
 

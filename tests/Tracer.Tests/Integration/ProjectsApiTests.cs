@@ -17,7 +17,7 @@ public class ProjectsApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> GetTeamAsync(string key)
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 
@@ -26,7 +26,7 @@ public class ProjectsApiTests : IClassFixture<TracerApiFactory>
     {
         var eng = await GetTeamAsync("ENG");
 
-        var projects = await _client.GetFromJsonAsync<List<ProjectPayload>>($"/api/teams/{eng.Id}/projects");
+        var projects = await _client.GetListAsync<ProjectPayload>($"/api/teams/{eng.Id}/projects");
 
         Assert.NotNull(projects);
         Assert.Contains(projects, p => p.Name == "Public API");

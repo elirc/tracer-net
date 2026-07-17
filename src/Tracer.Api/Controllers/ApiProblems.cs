@@ -35,6 +35,18 @@ public static class ApiProblems
     public static ObjectResult ConflictProblem(this ControllerBase controller, string title, string detail) =>
         controller.Problem(title: title, detail: detail, statusCode: StatusCodes.Status409Conflict);
 
+    /// <summary>
+    /// A write lost an optimistic-concurrency race: the row changed between the
+    /// caller reading it and saving. A 409, like every other collision, and
+    /// deliberately not a 500 — the request was well-formed, it was simply built
+    /// on a copy that has since moved.
+    /// </summary>
+    public static ObjectResult ConcurrencyConflictProblem(this ControllerBase controller, string resource) =>
+        controller.Problem(
+            title: $"{resource} was modified by someone else.",
+            detail: $"This {resource.ToLowerInvariant()} changed after you loaded it. Re-read it and reapply your change.",
+            statusCode: StatusCodes.Status409Conflict);
+
     /// <summary>The request is understood and coherent, but a domain rule forbids it.</summary>
     public static ObjectResult DomainRuleProblem(this ControllerBase controller, string title, string detail) =>
         controller.Problem(title: title, detail: detail, statusCode: StatusCodes.Status422UnprocessableEntity);

@@ -28,6 +28,16 @@ public class TracerApiFactory : WebApplicationFactory<Program>
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
 
     /// <summary>
+    /// The write rate limit this factory runs with. Defaults high enough that the
+    /// suite's write bursts — several test classes hammering the same admin key in
+    /// parallel — never trip it; the one test that means to exercise throttling
+    /// spins up its own factory with a small limit.
+    /// </summary>
+    public int RateLimitPermitLimit { get; init; } = 100_000;
+
+    public int RateLimitWindowSeconds { get; init; } = 60;
+
+    /// <summary>
     /// Stands in for every webhook subscriber. Tests script its responses and
     /// read back what was sent.
     /// </summary>
@@ -73,6 +83,13 @@ public class TracerApiFactory : WebApplicationFactory<Program>
         _connection.Open();
 
         builder.UseEnvironment("Development");
+
+        // Overrides the production default from appsettings: the rate limit is
+        // whatever this factory was configured with. Read lazily by the limiter at
+        // request time, so this lands in the config it actually sees.
+        builder.UseSetting("RateLimiting:PermitLimit", RateLimitPermitLimit.ToString());
+        builder.UseSetting("RateLimiting:WindowSeconds", RateLimitWindowSeconds.ToString());
+
         builder.ConfigureServices(services =>
         {
             services.RemoveAll(typeof(DbContextOptions<TracerDbContext>));

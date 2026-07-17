@@ -28,7 +28,7 @@ public class SavedViewsController(TracerDbContext db, TeamAccess access) : Contr
     /// views are not listed, for the same reason they cannot be fetched.
     /// </summary>
     [HttpGet("api/teams/{teamId:guid}/views")]
-    public async Task<ActionResult<List<SavedViewDto>>> ListForTeam(Guid teamId)
+    public async Task<ActionResult<PagedResult<SavedViewDto>>> ListForTeam(Guid teamId, [FromQuery] PageQuery paging)
     {
         if (!await access.CanAccessTeamAsync(User, teamId))
         {
@@ -43,9 +43,9 @@ public class SavedViewsController(TracerDbContext db, TeamAccess access) : Contr
             .OrderByDescending(v => v.IsDefault)
             .ThenBy(v => v.Name)
             .ThenBy(v => v.Id)
-            .ToListAsync();
+            .ToPagedResultAsync(paging, v => v.ToDto());
 
-        return Ok(views.Select(v => v.ToDto()).ToList());
+        return Ok(views);
     }
 
     /// <summary>The team's default view, or 404 when the team has not set one.</summary>

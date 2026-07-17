@@ -276,7 +276,7 @@ public class MetricsApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<Guid> SeedEngId()
     {
-        var teams = await _admin.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _admin.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == "ENG").Id;
     }
 }

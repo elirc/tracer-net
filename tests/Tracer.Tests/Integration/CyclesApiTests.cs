@@ -278,7 +278,7 @@ public class CyclesApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task Seeded_engineering_team_has_a_current_and_a_next_cycle()
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         var eng = teams!.Single(t => t.Key == "ENG");
 
         var cycles = await _client.GetFromJsonAsync<List<CyclePayload>>($"/api/teams/{eng.Id}/cycles");

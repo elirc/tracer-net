@@ -45,7 +45,7 @@ public class NotificationsApiTests : IClassFixture<TracerApiFactory>
         var created = await _ana.PostAsJsonAsync("/api/teams", new { name = $"Notif {key}", key });
         var team = (await created.Content.ReadFromJsonAsync<TeamPayload>())!;
 
-        var users = (await _ana.GetFromJsonAsync<List<UserRow>>("/api/users"))!;
+        var users = (await _ana.GetListAsync<UserRow>("/api/users"))!;
         await _ana.PutAsync($"/api/users/{users.Single(u => u.Handle == "ben").Id}/teams/{team.Id}", null);
         return team;
     }
@@ -132,7 +132,7 @@ public class NotificationsApiTests : IClassFixture<TracerApiFactory>
             new { title = "for a ghost", assignee = "nobody-by-that-name" });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var subscribers = await _ana.GetFromJsonAsync<List<SubscriberPayload>>($"/api/issues/{issue.Id}/subscribers");
+        var subscribers = await _ana.GetListAsync<SubscriberPayload>($"/api/issues/{issue.Id}/subscribers");
         Assert.DoesNotContain(subscribers!, s => s.Handle == "nobody-by-that-name");
     }
 
@@ -291,7 +291,7 @@ public class NotificationsApiTests : IClassFixture<TracerApiFactory>
         var issue = await IssueAsync(_ana, team.Id, "crowd");
         await _ben.PutAsync($"/api/issues/{issue.Id}/subscription", null);
 
-        var subscribers = await _ana.GetFromJsonAsync<List<SubscriberPayload>>($"/api/issues/{issue.Id}/subscribers");
+        var subscribers = await _ana.GetListAsync<SubscriberPayload>($"/api/issues/{issue.Id}/subscribers");
 
         Assert.Contains(subscribers!, s => s.Handle == "ana" && s.Reason == "Author");
         Assert.Contains(subscribers!, s => s.Handle == "ben" && s.Reason == "Manual");
@@ -416,7 +416,7 @@ public class NotificationsApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task Subscribing_to_a_foreign_teams_issue_is_out_of_reach()
     {
-        var teams = await _ana.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _ana.GetListAsync<TeamPayload>("/api/teams");
         var eng = teams!.Single(t => t.Key == "ENG");
         var issue = await IssueAsync(_ana, eng.Id, "engineering only");
         var foreigner = _factory.CreateDesMemberClient();

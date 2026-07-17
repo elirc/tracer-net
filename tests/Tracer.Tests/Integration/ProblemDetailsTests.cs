@@ -28,7 +28,7 @@ public class ProblemDetailsTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> GetTeamAsync(string key)
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 

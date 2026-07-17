@@ -31,7 +31,7 @@ namespace Tracer.Api.Controllers;
 public class ApiKeysController(TracerDbContext db) : ControllerBase
 {
     [HttpGet("api/users/{userId:guid}/api-keys")]
-    public async Task<ActionResult<List<ApiKeyDto>>> ListForUser(Guid userId)
+    public async Task<ActionResult<PagedResult<ApiKeyDto>>> ListForUser(Guid userId, [FromQuery] PageQuery paging)
     {
         if (!MayManage(userId))
         {
@@ -46,8 +46,9 @@ public class ApiKeysController(TracerDbContext db) : ControllerBase
         var keys = await db.ApiKeys
             .Where(k => k.UserId == userId)
             .OrderBy(k => k.CreatedAt)
+            .ThenBy(k => k.Id)
             .Select(k => new ApiKeyDto(k.Id, k.UserId, k.Name, k.Prefix, k.CreatedAt, k.LastUsedAt, k.RevokedAt))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(keys);
     }
 

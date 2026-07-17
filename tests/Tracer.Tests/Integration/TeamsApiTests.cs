@@ -18,7 +18,7 @@ public class TeamsApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task List_returns_seeded_teams()
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
 
         Assert.NotNull(teams);
         Assert.Contains(teams, t => t.Key == "ENG");

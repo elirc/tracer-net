@@ -44,7 +44,7 @@ public class SavedViewsApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> SeedTeamAsync(string key)
     {
-        var teams = await _admin.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _admin.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 
@@ -215,7 +215,7 @@ public class SavedViewsApiTests : IClassFixture<TracerApiFactory>
     {
         var eng = await SeedTeamAsync("ENG");
         var team = await CreateTeamAsync("View Foreign Label", "SVL");
-        var engLabels = await _admin.GetFromJsonAsync<List<LabelPayload>>($"/api/teams/{eng.Id}/labels");
+        var engLabels = await _admin.GetListAsync<LabelPayload>($"/api/teams/{eng.Id}/labels");
 
         var response = await _admin.PostAsJsonAsync($"/api/teams/{team.Id}/views", new
         {
@@ -257,7 +257,7 @@ public class SavedViewsApiTests : IClassFixture<TracerApiFactory>
         // include reading it.
         Assert.Equal(HttpStatusCode.NotFound, (await _admin.GetAsync($"/api/views/{view.Id}")).StatusCode);
 
-        var listed = await _admin.GetFromJsonAsync<List<ViewPayload>>($"/api/teams/{eng.Id}/views");
+        var listed = await _admin.GetListAsync<ViewPayload>($"/api/teams/{eng.Id}/views");
         Assert.DoesNotContain(listed!, v => v.Id == view.Id);
     }
 
@@ -272,7 +272,7 @@ public class SavedViewsApiTests : IClassFixture<TracerApiFactory>
         Assert.Equal("ben", fetched!.Owner);
         Assert.Equal("Personal", fetched.Scope);
 
-        var listed = await _member.GetFromJsonAsync<List<ViewPayload>>($"/api/teams/{eng.Id}/views");
+        var listed = await _member.GetListAsync<ViewPayload>($"/api/teams/{eng.Id}/views");
         Assert.Contains(listed!, v => v.Id == view.Id);
     }
 
@@ -337,7 +337,7 @@ public class SavedViewsApiTests : IClassFixture<TracerApiFactory>
         Assert.Equal(second.Id, (await _admin.GetFromJsonAsync<ViewPayload>($"/api/teams/{team.Id}/views/default"))!.Id);
         Assert.False((await _admin.GetFromJsonAsync<ViewPayload>($"/api/views/{first.Id}"))!.IsDefault);
 
-        var all = await _admin.GetFromJsonAsync<List<ViewPayload>>($"/api/teams/{team.Id}/views");
+        var all = await _admin.GetListAsync<ViewPayload>($"/api/teams/{team.Id}/views");
         Assert.Single(all!.Where(v => v.IsDefault));
     }
 
@@ -394,7 +394,7 @@ public class SavedViewsApiTests : IClassFixture<TracerApiFactory>
         await CreateViewAsync(_admin, team.Id, new { name = "Aardvark" });
         var chosen = await CreateViewAsync(_admin, team.Id, new { name = "Zebra", isDefault = true });
 
-        var views = await _admin.GetFromJsonAsync<List<ViewPayload>>($"/api/teams/{team.Id}/views");
+        var views = await _admin.GetListAsync<ViewPayload>($"/api/teams/{team.Id}/views");
 
         Assert.Equal(chosen.Id, views![0].Id);
     }

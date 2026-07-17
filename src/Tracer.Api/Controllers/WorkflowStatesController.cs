@@ -10,6 +10,12 @@ namespace Tracer.Api.Controllers;
 [ApiController]
 public class WorkflowStatesController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
+    /// <summary>
+    /// A team's workflow, in order. Deliberately not paged: a team's states are its
+    /// board columns, a small fixed set (five by default) that the board renders in
+    /// full, not a collection that grows with usage. The read is bounded by the
+    /// workflow itself, so there is nothing to page.
+    /// </summary>
     [HttpGet("api/teams/{teamId:guid}/states")]
     public async Task<ActionResult<List<WorkflowStateDto>>> ListForTeam(Guid teamId)
     {

@@ -39,7 +39,7 @@ public class IssueSearchApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> GetTeamAsync(string key)
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 
@@ -119,7 +119,7 @@ public class IssueSearchApiTests : IClassFixture<TracerApiFactory>
     public async Task Search_filters_by_project()
     {
         var eng = await GetTeamAsync("ENG");
-        var projects = (await _client.GetFromJsonAsync<List<ProjectPayload>>($"/api/teams/{eng.Id}/projects"))!;
+        var projects = (await _client.GetListAsync<ProjectPayload>($"/api/teams/{eng.Id}/projects"))!;
         var api = projects.Single(p => p.Name == "Public API");
 
         var page = await SearchAsync(("projectId", api.Id.ToString()));
@@ -132,7 +132,7 @@ public class IssueSearchApiTests : IClassFixture<TracerApiFactory>
     public async Task Search_filters_by_label()
     {
         var eng = await GetTeamAsync("ENG");
-        var labels = (await _client.GetFromJsonAsync<List<LabelPayload>>($"/api/teams/{eng.Id}/labels"))!;
+        var labels = (await _client.GetListAsync<LabelPayload>($"/api/teams/{eng.Id}/labels"))!;
         var bug = labels.Single(l => l.Name == "bug");
 
         var page = await SearchAsync(("labelId", bug.Id.ToString()));

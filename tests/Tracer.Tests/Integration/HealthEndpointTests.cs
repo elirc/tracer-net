@@ -13,7 +13,7 @@ public class HealthEndpointTests : IClassFixture<TracerApiFactory>
     }
 
     [Fact]
-    public async Task Health_returns_200()
+    public async Task Health_returns_200_when_database_is_reachable()
     {
         var response = await _client.GetAsync("/api/health");
 
@@ -21,14 +21,34 @@ public class HealthEndpointTests : IClassFixture<TracerApiFactory>
     }
 
     [Fact]
-    public async Task Health_reports_ok_status_and_service_name()
+    public async Task Health_reports_ok_status_name_and_version()
     {
         var body = await _client.GetFromJsonAsync<HealthPayload>("/api/health");
 
         Assert.NotNull(body);
         Assert.Equal("ok", body.Status);
-        Assert.Equal("tracer-net", body.Service);
+        Assert.Equal("tracer-net", body.Name);
+        Assert.False(string.IsNullOrWhiteSpace(body.Version));
     }
 
-    private sealed record HealthPayload(string Status, string Service);
+    [Fact]
+    public async Task Health_probes_the_database_and_reports_it_healthy()
+    {
+        var body = await _client.GetFromJsonAsync<HealthPayload>("/api/health");
+
+        Assert.NotNull(body);
+        Assert.NotNull(body.Database);
+        Assert.True(body.Database!.Healthy);
+        Assert.True(body.Database.DurationMs >= 0);
+        Assert.True(body.UtcNow > DateTimeOffset.UnixEpoch);
+    }
+
+    private sealed record HealthPayload(
+        string Status,
+        string Name,
+        string Version,
+        DateTimeOffset UtcNow,
+        DatabasePayload? Database);
+
+    private sealed record DatabasePayload(bool Healthy, double DurationMs);
 }

@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Tracer.Api.Auth;
+using Tracer.Api.Middleware;
 using Tracer.Api.Notifications;
+using Tracer.Api.RateLimiting;
 using Tracer.Api.Webhooks;
 using Tracer.Infrastructure;
 
@@ -28,6 +30,10 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser()
         .Build();
 });
+
+// Write-heavy endpoints draw from a per-credential fixed window; reads are never
+// throttled. See WriteRateLimiter for why only mutating methods are metered.
+builder.Services.AddWriteRateLimiter();
 
 builder.Services.AddScoped<TeamAccess>();
 builder.Services.AddScoped<ActivityRecorder>();
@@ -66,8 +72,18 @@ builder.Services.AddDbContext<TracerDbContext>(options =>
 
 var app = builder.Build();
 
+// Outermost, so its elapsed time covers the whole pipeline — auth, binding, the
+// handler, and the exception middleware below — and its log line still runs when
+// a request throws.
+app.UseRequestLogging();
+
 app.UseExceptionHandler(); // unhandled exception -> 500 ProblemDetails
 app.UseStatusCodePages(); // error status with no body -> ProblemDetails
+
+// Metered before authentication: the partition key is the raw API-key header, and
+// throttling an abusive caller should not first pay for a key lookup on every one
+// of their requests.
+app.UseRateLimiter();
 
 // Both sit inside UseStatusCodePages so that the bodyless 401 an authentication
 // challenge produces, and the bodyless 403 a role check produces, come back as
