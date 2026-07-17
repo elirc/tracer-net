@@ -29,7 +29,7 @@ namespace Tracer.Api.Controllers;
 /// </para>
 /// </summary>
 [ApiController]
-public class IssueRelationsController(TracerDbContext db, TeamAccess access) : ControllerBase
+public class IssueRelationsController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/issues/{issueId:guid}/relations")]
     public async Task<ActionResult<List<IssueRelationDto>>> ListForIssue(Guid issueId)
@@ -72,7 +72,7 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access) : C
                 "An issue cannot be related to itself.");
         }
 
-        var other = await db.Issues.FindAsync(otherId);
+        var other = await db.Issues.Include(i => i.Team).SingleOrDefaultAsync(i => i.Id == otherId);
         if (other is null || other.TeamId != issue.TeamId)
         {
             // Deliberately one answer for "no such issue" and "another team's
@@ -103,6 +103,12 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access) : C
 
         var relation = new IssueRelation { SourceIssueId = sourceId, TargetIssueId = targetId, Type = type };
         db.IssueRelations.Add(relation);
+
+        // Logged against the issue the caller addressed, phrased the way they
+        // phrased it. The row is canonical; the history is what happened.
+        activity.Record(User, issue, ActivityType.IssueRelationAdded,
+            field: kind.ToString(),
+            newValue: $"{other.Team!.Key}-{other.Number}");
 
         try
         {
@@ -138,7 +144,8 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access) : C
     [HttpDelete("api/issues/{issueId:guid}/relations/{relationId:guid}")]
     public async Task<IActionResult> Delete(Guid issueId, Guid relationId)
     {
-        if (await FindVisibleAsync(issueId) is null)
+        var issue = await FindVisibleAsync(issueId);
+        if (issue is null)
         {
             return this.NotFoundProblem("Issue", issueId);
         }
@@ -149,9 +156,24 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access) : C
             return this.NotFoundProblem("Relation on this issue", relationId);
         }
 
+        var otherId = relation.SourceIssueId == issueId ? relation.TargetIssueId : relation.SourceIssueId;
+        activity.Record(User, issue, ActivityType.IssueRelationRemoved,
+            field: IssueRelations.AsSeenFrom(relation.Type, relation.SourceIssueId == issueId).ToString(),
+            oldValue: await IdentifierOfAsync(otherId));
+
         db.IssueRelations.Remove(relation);
         await db.SaveChangesAsync();
         return NoContent();
+    }
+
+    private async Task<string?> IdentifierOfAsync(Guid issueId)
+    {
+        var found = await db.Issues
+            .Where(i => i.Id == issueId)
+            .Select(i => new { i.Number, TeamKey = i.Team!.Key })
+            .SingleOrDefaultAsync();
+
+        return found is null ? null : $"{found.TeamKey}-{found.Number}";
     }
 
     private async Task<Issue?> FindVisibleAsync(Guid issueId)

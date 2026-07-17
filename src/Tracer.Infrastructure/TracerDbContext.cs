@@ -17,6 +17,7 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
     public DbSet<IssueRelation> IssueRelations => Set<IssueRelation>();
+    public DbSet<Activity> Activities => Set<Activity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -166,6 +167,29 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
             // B" and "B relates to A" are two different tuples and this index
             // would wave the duplicate straight through.
             relation.HasIndex(r => new { r.SourceIssueId, r.TargetIssueId, r.Type }).IsUnique();
+        });
+
+        modelBuilder.Entity<Activity>(activity =>
+        {
+            activity.Property(a => a.IssueTitle).HasMaxLength(500);
+            activity.Property(a => a.ActorHandle).HasMaxLength(100);
+            activity.Property(a => a.Field).HasMaxLength(50);
+            activity.Property(a => a.OldValue).HasMaxLength(500);
+            activity.Property(a => a.NewValue).HasMaxLength(500);
+
+            // The only relationship the log keeps. IssueId and ActorId are
+            // deliberately plain columns — see the Activity docs: a cascade there
+            // would erase the record of a deletion, which is the one thing an
+            // audit log must survive.
+            activity.HasOne(a => a.Team)
+                .WithMany()
+                .HasForeignKey(a => a.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Both feeds read newest-first within a scope, so both are indexed
+            // that way: the timeline by issue, the team feed by team.
+            activity.HasIndex(a => new { a.IssueId, a.CreatedAt });
+            activity.HasIndex(a => new { a.TeamId, a.CreatedAt });
         });
 
         modelBuilder.Entity<Label>(label =>

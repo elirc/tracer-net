@@ -177,7 +177,15 @@ Admin-only, except where noted.
 | `POST` | `/api/issues/{id}/transitions` | Move to another state; validated, appends to the target column |
 | `POST` | `/api/issues/{id}/reorder` | Reposition within a column, or move columns — see [Ordering](#ordering) |
 | `GET` | `/api/issues/{id}/children` | Sub-issues plus a progress roll-up — see [Sub-issues](#sub-issues) |
+| `GET` | `/api/issues/{id}/activity` | This issue's timeline — see [Activity](#activity) |
 | `DELETE` | `/api/issues/{id}` | Delete an issue; its children survive, un-nested |
+
+### Activity
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/issues/{issueId}/activity` | One issue's history, newest first |
+| `GET` | `/api/teams/{teamId}/activity` | The team's feed; filterable — see [Activity](#activity) |
 
 ### Relations
 
@@ -313,6 +321,74 @@ Two guards:
 Deleting a parent **releases** its children rather than deleting them — the call
 this product already makes for a deleted project or cycle. "I deleted the
 umbrella ticket" must not silently mean "I deleted the six tickets under it".
+
+## Activity
+
+Every issue mutation writes an immutable record: creation, field edits, state
+changes, assignment, labels, relations, re-parenting, comments, deletion. Each
+carries the actor and the before/after values.
+
+```bash
+curl -H "$KEY" .../api/issues/$ID/activity
+curl -H "$KEY" ".../api/teams/$TEAM/activity?type=IssueStateChanged&actor=ben&since=2026-07-01T00:00:00Z"
+```
+
+| Filter | Notes |
+|---|---|
+| `issueId` | Including an issue since deleted |
+| `type` | `IssueCreated`, `IssueUpdated`, `IssueStateChanged`, `IssueAssigned`, `IssueLabelAdded`/`Removed`, `IssueRelationAdded`/`Removed`, `IssueParentChanged`, `IssueDeleted`, `CommentCreated`/`Updated`/`Deleted` |
+| `actor` | Handle, compared case-insensitively |
+| `since` / `until` | Half-open `[since, until)`, as cycles are, so windows tile without double-counting |
+| `page` / `pageSize` | Default 1 / 50, max 100 |
+
+**Read-only, and not by omission.** There is no route to write, edit, or delete
+an entry. A log with a `DELETE` endpoint answers "what happened, unless someone
+preferred otherwise", which is not the question.
+
+**The log deliberately breaks the rules the rest of the schema follows.**
+`Activity.IssueId` and `ActorId` are plain Guids with *no foreign key*. A foreign
+key would have to cascade — and then deleting an issue would erase the record of
+who deleted it, which is the single question an audit log exists to answer. The
+log outlives the rows it describes; that is what makes it a log and not a join
+table. Because those rows can vanish, everything needed to render an entry is
+copied in at write time: the issue title and actor handle are denormalized on
+purpose, since a feed that renders "(deleted issue) was deleted by (deleted
+user)" is not a feed.
+
+`TeamId` is the exception that proves the rule: it *does* cascade. Deleting a
+team is an admin nuking a whole workspace, feed included — and as the feed is
+only ever read per team, orphaned rows would be unreachable forever while still
+taking space. Keeping the team also means `ENG-42` is rendered from the live team
+key, so a renamed team renames its history, exactly as identifiers behave
+everywhere else here.
+
+**Records commit in the same transaction as the change.** `ActivityRecorder`
+never calls `SaveChanges`; it adds to the DbContext the mutation is already
+sitting in. A separate save, a queue, or an outbox drain would each buy a window
+where the change lands and the record doesn't. An audit log that disagrees with
+the data is worse than no audit log, because it is trusted.
+
+**One save is one instant.** Entries from a single request share one timestamp
+rather than reading the clock per row — editing a title and a priority together
+did not happen twice, microseconds apart. That makes the id tiebreak on both
+feeds load-bearing: those entries collide exactly, and paging an unstable order
+silently repeats and skips rows.
+
+**Events, not column diffs.** Recording is an explicit call per controller rather
+than a `SaveChanges` interceptor. An interceptor would be impossible to forget,
+which is tempting — but it sees columns, not intent: it can't tell a re-parent
+from an assignment, can't name the actor without ambient request state, and would
+report a rank rebalance (a move of *other people's* cards) as a dozen edits
+nobody made. The trade is real — this can be forgotten — and the tests are where
+that's caught. Two consequences worth knowing:
+
+- **A no-op writes nothing.** Re-saving an issue unchanged, or re-attaching a
+  label it already has, records nothing. A form re-sends every field on every
+  save; if that wrote history, one edit would bury the feed.
+- **Big text isn't copied.** A description change records *that* it changed, not
+  two copies of it; comment bodies are excerpted. An append-only table holding
+  every version of every 10k-character body stops being an audit log and becomes
+  a second, worse copy of the comments table.
 
 ## Search
 

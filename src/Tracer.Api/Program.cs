@@ -28,6 +28,7 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddScoped<TeamAccess>();
+builder.Services.AddScoped<ActivityRecorder>();
 
 // Controllers report their own errors as ProblemDetails, but plenty of error
 // responses never reach a controller: an unmatched route, a method that does not

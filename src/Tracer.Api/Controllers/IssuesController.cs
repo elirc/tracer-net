@@ -9,7 +9,7 @@ using Tracer.Infrastructure;
 namespace Tracer.Api.Controllers;
 
 [ApiController]
-public class IssuesController(TracerDbContext db, TeamAccess access) : ControllerBase
+public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     /// <summary>Escape character for LIKE patterns; free-text input may contain % or _.</summary>
     private const string LikeEscape = "\\";
@@ -186,6 +186,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             Position = nextPosition + 1,
         };
         db.Issues.Add(issue);
+        activity.Record(User, issue, ActivityType.IssueCreated, newValue: issue.Title);
         await db.SaveChangesAsync();
 
         return CreatedAtAction(nameof(Get), new { id = issue.Id }, issue.ToDto(team!.Key, state.Name));
@@ -249,6 +250,19 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             }
         }
 
+        // Captured before anything is written: once the entity is mutated the
+        // previous values are gone, and "changed from X to Y" is the entire
+        // reason anyone reads an audit log.
+        var before = new
+        {
+            issue.Title,
+            issue.Description,
+            issue.Priority,
+            issue.Estimate,
+            issue.Assignee,
+            issue.ParentId,
+        };
+
         issue.Title = request.Title;
         issue.Description = request.Description;
         issue.Priority = request.Priority;
@@ -258,9 +272,83 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
         issue.CycleId = request.CycleId;
         issue.ParentId = request.ParentId;
         issue.UpdatedAt = DateTimeOffset.UtcNow;
+
+        RecordEdits(issue, before.Title, before.Description, before.Priority, before.Estimate);
+
+        // Assignment and re-parenting are not field edits, they are things that
+        // happen to a person or a plan, so they get their own event types rather
+        // than being flattened into "someone changed a column".
+        if (!string.Equals(before.Assignee, issue.Assignee, StringComparison.Ordinal))
+        {
+            activity.Record(User, issue, ActivityType.IssueAssigned,
+                oldValue: before.Assignee, newValue: issue.Assignee);
+        }
+
+        if (before.ParentId != issue.ParentId)
+        {
+            activity.Record(User, issue, ActivityType.IssueParentChanged,
+                oldValue: await IdentifierOfAsync(before.ParentId),
+                newValue: await IdentifierOfAsync(issue.ParentId));
+        }
+
         await db.SaveChangesAsync();
 
         return Ok(issue.ToDto(issue.Team!.Key, issue.State!.Name));
+    }
+
+    /// <summary>
+    /// One entry per field that actually moved. A PUT that resends an issue
+    /// unchanged — which is what a form does every time someone hits save —
+    /// records nothing, because nothing happened; a feed that says "ana updated
+    /// this" fourteen times for one edit is a feed people stop reading.
+    /// </summary>
+    private void RecordEdits(
+        Issue issue,
+        string? oldTitle,
+        string? oldDescription,
+        IssuePriority oldPriority,
+        int? oldEstimate)
+    {
+        if (!string.Equals(oldTitle, issue.Title, StringComparison.Ordinal))
+        {
+            activity.Record(User, issue, ActivityType.IssueUpdated, "title", oldTitle, issue.Title);
+        }
+
+        if (!string.Equals(oldDescription, issue.Description, StringComparison.Ordinal))
+        {
+            // The values themselves are left out: a description can run to
+            // kilobytes, and an audit log is not a place to store two copies of
+            // it. That it changed, by whom, and when is the useful part.
+            activity.Record(User, issue, ActivityType.IssueUpdated, "description");
+        }
+
+        if (oldPriority != issue.Priority)
+        {
+            activity.Record(User, issue, ActivityType.IssueUpdated, "priority",
+                oldPriority.ToString(), issue.Priority.ToString());
+        }
+
+        if (oldEstimate != issue.Estimate)
+        {
+            activity.Record(User, issue, ActivityType.IssueUpdated, "estimate",
+                oldEstimate?.ToString(), issue.Estimate?.ToString());
+        }
+    }
+
+    /// <summary>Renders an issue id as "ENG-42" for the log, or null when there was no issue.</summary>
+    private async Task<string?> IdentifierOfAsync(Guid? issueId)
+    {
+        if (issueId is not { } id)
+        {
+            return null;
+        }
+
+        var found = await db.Issues
+            .Where(i => i.Id == id)
+            .Select(i => new { i.Number, TeamKey = i.Team!.Key })
+            .SingleOrDefaultAsync();
+
+        return found is null ? null : $"{found.TeamKey}-{found.Number}";
     }
 
     /// <summary>
@@ -298,10 +386,12 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             var nextPosition = await db.Issues
                 .Where(i => i.TeamId == issue.TeamId && i.StateId == target.Id)
                 .MaxAsync(i => (double?)i.Position) ?? 0;
+            var previous = issue.State.Name;
             issue.StateId = target.Id;
             issue.State = target;
             issue.Position = nextPosition + 1;
             issue.UpdatedAt = DateTimeOffset.UtcNow;
+            activity.Record(User, issue, ActivityType.IssueStateChanged, oldValue: previous, newValue: target.Name);
             await db.SaveChangesAsync();
         }
 
@@ -412,10 +502,25 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             (lower, upper) = Bounds();
         }
 
+        var leftColumn = issue.State!.Name;
+        var changedColumn = issue.StateId != target.Id;
+
         issue.StateId = target.Id;
         issue.State = target;
         issue.Position = IssueRanker.Between(lower, upper);
         issue.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // Dragging a card to another column is a state change and is logged as
+        // one — the same event an explicit transition produces, because to
+        // everyone reading the feed it is the same thing. Moving a card *within*
+        // a column is not: rank is a view preference, and logging it would bury
+        // the feed under the noise of one person tidying their board.
+        if (changedColumn)
+        {
+            activity.Record(User, issue, ActivityType.IssueStateChanged,
+                oldValue: leftColumn, newValue: target.Name);
+        }
+
         await db.SaveChangesAsync();
 
         return Ok(issue.ToDto(issue.Team!.Key, target.Name));
@@ -474,6 +579,11 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             return this.NotFoundProblem("Issue", id);
         }
 
+        // Recorded before the row goes, and committed in the same transaction as
+        // the removal. The log carries no foreign key to the issue precisely so
+        // that this entry outlives it — "who deleted this?" is the question an
+        // audit log exists for.
+        activity.Record(User, issue, ActivityType.IssueDeleted, oldValue: issue.Title);
         db.Issues.Remove(issue);
         await db.SaveChangesAsync();
         return NoContent();
