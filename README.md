@@ -22,6 +22,25 @@ and can be found again through a single filterable search endpoint.
 | `Tracer.Infrastructure` | EF Core `DbContext`, migrations, persistence |
 | `Tracer.Tests` | Unit and integration tests |
 
+## Documentation
+
+Deeper docs live in [`docs/`](docs/):
+
+- [Architecture](docs/architecture.md) — layering, the activity spine, the
+  transactional outbox, relation normalization, ordering, cycles, auth, and the
+  pagination/concurrency model.
+- [API reference](docs/api-reference.md) — every endpoint: method, route, auth,
+  request/response shape, error codes.
+- [Getting started](docs/getting-started.md) — run, seed, and a curl walkthrough
+  (team → project → issue → transition → relation → cycle → view → export) plus
+  webhook and metrics examples.
+- [Architecture Decision Records](docs/adr/README.md) — the reasoning behind the
+  load-bearing decisions.
+- [Testing](docs/testing.md) — the test taxonomy, the WebApplicationFactory
+  harness, and the migration-drift guard.
+
+The suite is **591 tests** (`dotnet test`).
+
 ## Getting started
 
 ```bash
