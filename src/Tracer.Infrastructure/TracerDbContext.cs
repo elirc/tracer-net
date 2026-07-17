@@ -14,6 +14,7 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<Cycle> Cycles => Set<Cycle>();
+    public DbSet<Milestone> Milestones => Set<Milestone>();
     public DbSet<SavedView> SavedViews => Set<SavedView>();
     public DbSet<User> Users => Set<User>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
@@ -134,6 +135,14 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
             issue.HasOne(i => i.Cycle)
                 .WithMany(c => c.Issues)
                 .HasForeignKey(i => i.CycleId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Deleting a milestone releases its issues rather than deleting them,
+            // exactly as a deleted project or cycle does: the milestone was a
+            // grouping, and the work grouped under it outlives the target.
+            issue.HasOne(i => i.Milestone)
+                .WithMany(m => m.Issues)
+                .HasForeignKey(i => i.MilestoneId)
                 .OnDelete(DeleteBehavior.SetNull);
 
             // Deleting a parent releases its children rather than taking them
@@ -361,6 +370,26 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
                 .WithMany(t => t.Cycles)
                 .HasForeignKey(c => c.TeamId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Milestone>(milestone =>
+        {
+            milestone.Property(m => m.Name).HasMaxLength(200);
+
+            milestone.HasOne(m => m.Team)
+                .WithMany()
+                .HasForeignKey(m => m.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A milestone belongs to its project and goes when the project does —
+            // a roadmap target with no project left to land on is nothing.
+            milestone.HasOne(m => m.Project)
+                .WithMany()
+                .HasForeignKey(m => m.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The roadmap reads a team's milestones in target-date order.
+            milestone.HasIndex(m => new { m.TeamId, m.TargetDate });
         });
     }
 
