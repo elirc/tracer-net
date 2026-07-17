@@ -14,6 +14,7 @@ public record IssueDto(
     string? Description,
     IssuePriority Priority,
     int? Estimate,
+    string? Assignee,
     Guid StateId,
     string State,
     Guid? ProjectId,
@@ -29,14 +30,18 @@ public record CreateIssueRequest(
     IssuePriority Priority = IssuePriority.None,
     [Range(0, 100)] int? Estimate = null,
     Guid? StateId = null,
-    Guid? ProjectId = null);
+    Guid? ProjectId = null,
+    Guid? CycleId = null,
+    [MaxLength(100)] string? Assignee = null);
 
 public record UpdateIssueRequest(
     [Required, MaxLength(500)] string Title,
     string? Description,
     IssuePriority Priority,
     [Range(0, 100)] int? Estimate,
-    Guid? ProjectId);
+    Guid? ProjectId,
+    Guid? CycleId = null,
+    [MaxLength(100)] string? Assignee = null);
 
 public static class IssueMappings
 {
@@ -49,6 +54,7 @@ public static class IssueMappings
         issue.Description,
         issue.Priority,
         issue.Estimate,
+        issue.Assignee,
         issue.StateId,
         stateName,
         issue.ProjectId,
