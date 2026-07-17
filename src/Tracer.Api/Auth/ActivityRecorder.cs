@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Tracer.Api.Notifications;
 using Tracer.Api.Webhooks;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
@@ -29,7 +30,7 @@ namespace Tracer.Api.Auth;
 /// forgotten. The tests are where that is caught.
 /// </para>
 /// </summary>
-public sealed class ActivityRecorder(TracerDbContext db, WebhookOutbox webhooks)
+public sealed class ActivityRecorder(TracerDbContext db, WebhookOutbox webhooks, NotificationFanout notifications)
 {
     /// <summary>
     /// One instant for the whole request — this is registered scoped, so it is
@@ -85,6 +86,7 @@ public sealed class ActivityRecorder(TracerDbContext db, WebhookOutbox webhooks)
 
         db.Activities.Add(activity);
         await webhooks.EnqueueAsync(activity, issue);
+        await notifications.HandleAsync(user, activity, issue);
         return activity;
     }
 

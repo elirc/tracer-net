@@ -22,6 +22,8 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<Activity> Activities => Set<Activity>();
     public DbSet<Webhook> Webhooks => Set<Webhook>();
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
+    public DbSet<IssueSubscription> IssueSubscriptions => Set<IssueSubscription>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -255,6 +257,53 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
 
             // The team's view of their own log, newest first.
             delivery.HasIndex(d => new { d.WebhookId, d.CreatedAt });
+        });
+
+        modelBuilder.Entity<IssueSubscription>(subscription =>
+        {
+            // One row per person per issue: the unique index is what makes
+            // auto-subscribe idempotent under concurrency rather than piling up
+            // duplicate watchers that each notify separately.
+            subscription.HasIndex(s => new { s.UserId, s.IssueId }).IsUnique();
+
+            subscription.HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            subscription.HasOne(s => s.Issue)
+                .WithMany()
+                .HasForeignKey(s => s.IssueId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Fan-out's only query: who watches this issue.
+            subscription.HasIndex(s => s.IssueId);
+        });
+
+        modelBuilder.Entity<Notification>(notification =>
+        {
+            // A change fans out to a watcher exactly once. The unique index makes
+            // that a guarantee rather than a hope, so a retried or double-fired
+            // fan-out cannot stack the same event in one inbox twice.
+            notification.HasIndex(n => new { n.UserId, n.ActivityId }).IsUnique();
+
+            notification.HasOne(n => n.User)
+                .WithMany()
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The notification points at the activity rather than copying it. The
+            // activity is immutable and cascades only with its team, so an inbox
+            // item survives the deletion of its issue exactly as the audit entry
+            // does.
+            notification.HasOne(n => n.Activity)
+                .WithMany()
+                .HasForeignKey(n => n.ActivityId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The inbox reads one user's notifications newest-first, and the badge
+            // counts their unread ones; this index serves both.
+            notification.HasIndex(n => new { n.UserId, n.ReadAt, n.CreatedAt });
         });
 
         modelBuilder.Entity<Label>(label =>

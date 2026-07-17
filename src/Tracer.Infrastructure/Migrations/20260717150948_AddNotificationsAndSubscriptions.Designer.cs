@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Tracer.Infrastructure;
 
@@ -10,9 +11,11 @@ using Tracer.Infrastructure;
 namespace Tracer.Infrastructure.Migrations
 {
     [DbContext(typeof(TracerDbContext))]
-    partial class TracerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260717150948_AddNotificationsAndSubscriptions")]
+    partial class AddNotificationsAndSubscriptions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -210,10 +213,6 @@ namespace Tracer.Infrastructure.Migrations
                     b.Property<int?>("Estimate")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("ExternalId")
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("Number")
                         .HasColumnType("INTEGER");
 
@@ -254,10 +253,6 @@ namespace Tracer.Infrastructure.Migrations
                     b.HasIndex("StateId", "Position");
 
                     b.HasIndex("TeamId", "Assignee");
-
-                    b.HasIndex("TeamId", "ExternalId")
-                        .IsUnique()
-                        .HasFilter("\"ExternalId\" IS NOT NULL");
 
                     b.HasIndex("TeamId", "Number")
                         .IsUnique();
