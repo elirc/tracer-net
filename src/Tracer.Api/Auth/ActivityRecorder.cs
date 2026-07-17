@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Tracer.Api.Webhooks;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
 
@@ -28,7 +29,7 @@ namespace Tracer.Api.Auth;
 /// forgotten. The tests are where that is caught.
 /// </para>
 /// </summary>
-public sealed class ActivityRecorder(TracerDbContext db)
+public sealed class ActivityRecorder(TracerDbContext db, WebhookOutbox webhooks)
 {
     /// <summary>
     /// One instant for the whole request — this is registered scoped, so it is
@@ -50,7 +51,16 @@ public sealed class ActivityRecorder(TracerDbContext db)
     /// </summary>
     private readonly DateTimeOffset _at = DateTimeOffset.UtcNow;
 
-    public Activity Record(
+    /// <summary>
+    /// Records a change and fans it out to everything that follows from one.
+    ///
+    /// This is the spine: the audit entry and any webhook deliveries are added to
+    /// the same DbContext, so the caller's single <c>SaveChangesAsync</c> commits
+    /// the change, the record of it, and the promise to announce it — or none of
+    /// them. Fanning out anywhere else would let a webhook fire for a change that
+    /// rolled back, or a change commit with nobody told.
+    /// </summary>
+    public async Task<Activity> RecordAsync(
         ClaimsPrincipal user,
         Issue issue,
         ActivityType type,
@@ -74,6 +84,7 @@ public sealed class ActivityRecorder(TracerDbContext db)
         };
 
         db.Activities.Add(activity);
+        await webhooks.EnqueueAsync(activity, issue);
         return activity;
     }
 }

@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Tracer.Api.Auth;
+using Tracer.Api.Webhooks;
 using Tracer.Infrastructure;
 
 namespace Tracer.Tests.Integration;
@@ -24,6 +26,28 @@ namespace Tracer.Tests.Integration;
 public class TracerApiFactory : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
+
+    /// <summary>
+    /// Stands in for every webhook subscriber. Tests script its responses and
+    /// read back what was sent.
+    /// </summary>
+    public StubWebhookEndpoint WebhookEndpoint { get; } = new();
+
+    /// <summary>
+    /// Drains the webhook outbox once, synchronously, and reports how many
+    /// deliveries were attempted.
+    ///
+    /// The background worker is removed below and this is called explicitly
+    /// instead. A test that has to wait for a five-second poll is a test that is
+    /// either slow or flaky, and usually manages both — while the thing worth
+    /// asserting is what a drain *does*, not that a timer eventually fires.
+    /// </summary>
+    public async Task<int> DrainWebhooksAsync()
+    {
+        using var scope = Services.CreateScope();
+        var sender = scope.ServiceProvider.GetRequiredService<WebhookSender>();
+        return await sender.DeliverDueAsync();
+    }
 
     /// <summary>Workspace admin "ana": reaches every team.</summary>
     public HttpClient CreateAdminClient() => CreateClientWithKey(DevApiKeys.Admin);
@@ -53,6 +77,15 @@ public class TracerApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll(typeof(DbContextOptions<TracerDbContext>));
             services.AddDbContext<TracerDbContext>(options => options.UseSqlite(_connection));
+
+            // Out with the polling worker: tests drive delivery through
+            // DrainWebhooksAsync so that "did it send?" is a question with an
+            // answer rather than a race against a timer.
+            services.RemoveAll(typeof(IHostedService));
+
+            // Every webhook request goes to the stub instead of the network.
+            services.AddHttpClient(WebhookSender.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => WebhookEndpoint);
         });
     }
 

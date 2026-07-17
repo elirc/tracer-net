@@ -106,7 +106,7 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access, Act
 
         // Logged against the issue the caller addressed, phrased the way they
         // phrased it. The row is canonical; the history is what happened.
-        activity.Record(User, issue, ActivityType.IssueRelationAdded,
+        await activity.RecordAsync(User, issue, ActivityType.IssueRelationAdded,
             field: kind.ToString(),
             newValue: $"{other.Team!.Key}-{other.Number}");
 
@@ -157,7 +157,7 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access, Act
         }
 
         var otherId = relation.SourceIssueId == issueId ? relation.TargetIssueId : relation.SourceIssueId;
-        activity.Record(User, issue, ActivityType.IssueRelationRemoved,
+        await activity.RecordAsync(User, issue, ActivityType.IssueRelationRemoved,
             field: IssueRelations.AsSeenFrom(relation.Type, relation.SourceIssueId == issueId).ToString(),
             oldValue: await IdentifierOfAsync(otherId));
 
