@@ -14,7 +14,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         var projects = await db.Projects
@@ -30,7 +30,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         var project = new Project { TeamId = teamId, Name = request.Name, Description = request.Description };
@@ -47,7 +47,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
         var project = await db.Projects.FindAsync(id);
         if (project is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Project", id);
         }
 
         return Ok(new ProjectDto(project.Id, project.TeamId, project.Name, project.Description, project.CreatedAt));
@@ -59,7 +59,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
         var project = await db.Projects.FindAsync(id);
         if (project is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Project", id);
         }
 
         project.Name = request.Name;
@@ -75,7 +75,7 @@ public class ProjectsController(TracerDbContext db) : ControllerBase
         var project = await db.Projects.FindAsync(id);
         if (project is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Project", id);
         }
 
         db.Projects.Remove(project);

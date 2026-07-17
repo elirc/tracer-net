@@ -14,7 +14,7 @@ public class CommentsController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Issues.AnyAsync(i => i.Id == issueId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", issueId);
         }
 
         var comments = await db.Comments
@@ -31,7 +31,7 @@ public class CommentsController(TracerDbContext db) : ControllerBase
         var issue = await db.Issues.FindAsync(issueId);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", issueId);
         }
 
         var comment = new Comment { IssueId = issueId, Author = request.Author, Body = request.Body };
@@ -49,7 +49,7 @@ public class CommentsController(TracerDbContext db) : ControllerBase
         var comment = await db.Comments.FindAsync(id);
         if (comment is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Comment", id);
         }
 
         return Ok(new CommentDto(comment.Id, comment.IssueId, comment.Author, comment.Body, comment.CreatedAt));
@@ -61,7 +61,7 @@ public class CommentsController(TracerDbContext db) : ControllerBase
         var comment = await db.Comments.FindAsync(id);
         if (comment is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Comment", id);
         }
 
         comment.Body = request.Body;
@@ -76,7 +76,7 @@ public class CommentsController(TracerDbContext db) : ControllerBase
         var comment = await db.Comments.FindAsync(id);
         if (comment is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Comment", id);
         }
 
         db.Comments.Remove(comment);

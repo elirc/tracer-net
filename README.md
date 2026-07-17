@@ -2,11 +2,16 @@
 
 A Linear-clone issue tracker backend built with C# / .NET 10 and ASP.NET Core.
 
+Teams own everything: their own workflow, projects, labels, cycles, and issues.
+Issues move between workflow states under a validated state machine, sit at a
+fractional rank within their column, can be scheduled into a time-boxed cycle,
+and can be found again through a single filterable search endpoint.
+
 ## Stack
 
 - .NET 10, ASP.NET Core Web API (controllers)
 - EF Core with SQLite
-- xUnit (unit + integration tests via `WebApplicationFactory`)
+- xUnit — unit tests for domain rules, integration tests over real HTTP via `WebApplicationFactory`
 
 ## Solution layout
 
@@ -25,8 +30,225 @@ dotnet test
 dotnet run --project src/Tracer.Api
 ```
 
-## Domain scope
+In `Development` the app applies migrations and seeds sample data on startup
+(two teams, `ENG` and `DES`, with projects, labels, issues, comments, and a live
+cycle), so `dotnet run` gives you something to query immediately:
 
-Teams, projects, issues (priority/estimate), per-team workflow states,
-labels, comments, cycles (time-boxed iterations), issue ordering,
-search/filtering, and validated state transitions.
+```bash
+curl http://localhost:5284/api/teams
+curl "http://localhost:5284/api/issues?q=rate%20limiting"
+```
+
+## Endpoints
+
+### Health
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Liveness probe |
+
+### Teams
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams` | List all teams |
+| `POST` | `/api/teams` | Create a team; seeds it with the default five-state workflow |
+| `GET` | `/api/teams/{id}` | Get a team |
+| `PUT` | `/api/teams/{id}` | Rename a team or change its key |
+| `DELETE` | `/api/teams/{id}` | Delete a team and everything it owns |
+
+### Projects
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams/{teamId}/projects` | List a team's projects |
+| `POST` | `/api/teams/{teamId}/projects` | Create a project |
+| `GET` | `/api/projects/{id}` | Get a project |
+| `PUT` | `/api/projects/{id}` | Update a project |
+| `DELETE` | `/api/projects/{id}` | Delete a project; its issues survive, unassigned |
+
+### Workflow states
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams/{teamId}/states` | List a team's workflow, in order |
+| `POST` | `/api/teams/{teamId}/states` | Add a state at a position |
+| `GET` | `/api/states/{id}` | Get a state |
+| `PUT` | `/api/states/{id}` | Rename, recolor, or reorder a state |
+| `DELETE` | `/api/states/{id}` | Delete a state; refused (409) if it holds issues or is the team's last |
+
+### Issues
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/issues` | **Search** across teams — see [Search](#search) |
+| `GET` | `/api/teams/{teamId}/issues` | List a team's issues in board order |
+| `POST` | `/api/teams/{teamId}/issues` | Create an issue; auto-numbered (`ENG-42`), appended to its column |
+| `GET` | `/api/issues/{id}` | Get an issue |
+| `PUT` | `/api/issues/{id}` | Update an issue's fields, project, cycle, and assignee |
+| `POST` | `/api/issues/{id}/transitions` | Move to another state; validated, appends to the target column |
+| `POST` | `/api/issues/{id}/reorder` | Reposition within a column, or move columns — see [Ordering](#ordering) |
+| `DELETE` | `/api/issues/{id}` | Delete an issue |
+
+### Labels
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams/{teamId}/labels` | List a team's labels |
+| `POST` | `/api/teams/{teamId}/labels` | Create a label |
+| `GET` | `/api/labels/{id}` | Get a label |
+| `PUT` | `/api/labels/{id}` | Update a label |
+| `DELETE` | `/api/labels/{id}` | Delete a label |
+| `PUT` | `/api/issues/{issueId}/labels/{labelId}` | Attach a label to an issue (idempotent) |
+| `DELETE` | `/api/issues/{issueId}/labels/{labelId}` | Detach a label from an issue |
+
+### Comments
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/issues/{issueId}/comments` | List an issue's comments, oldest first |
+| `POST` | `/api/issues/{issueId}/comments` | Comment on an issue |
+| `GET` | `/api/comments/{id}` | Get a comment |
+| `PUT` | `/api/comments/{id}` | Edit a comment's body |
+| `DELETE` | `/api/comments/{id}` | Delete a comment |
+
+### Cycles
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams/{teamId}/cycles` | List a team's cycles; `?status=Upcoming\|Active\|Completed` |
+| `POST` | `/api/teams/{teamId}/cycles` | Create a cycle; auto-numbered per team |
+| `GET` | `/api/cycles/{id}` | Get a cycle |
+| `PUT` | `/api/cycles/{id}` | Move or rename a cycle |
+| `DELETE` | `/api/cycles/{id}` | Delete a cycle; its issues survive, unscheduled |
+| `GET` | `/api/cycles/{id}/summary` | Progress roll-up — see [Cycles](#cycles-1) |
+
+## Search
+
+`GET /api/issues` — every filter is optional and they combine with AND.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `teamId` | guid | |
+| `projectId` | guid | |
+| `stateId` | guid | |
+| `cycleId` | guid | |
+| `labelId` | guid | Issues carrying that label |
+| `assignee` | string | Exact handle, compared case-insensitively |
+| `priority` | `None`/`Urgent`/`High`/`Medium`/`Low` | |
+| `q` | string | Substring of title or description; LIKE wildcards are treated literally |
+| `sort` | `Updated`/`Created`/`Priority`/`Number`/`Title`/`Position` | Default `Updated` |
+| `order` | `Asc`/`Desc` | Default `Desc` |
+| `page` | int ≥ 1 | Default 1 |
+| `pageSize` | int 1–100 | Default 25 |
+
+Returns `{ items, page, pageSize, total, totalPages }`.
+
+Two details worth knowing:
+
+- **`sort=Priority` ranks by urgency, not by enum value.** `None` means *no
+  priority set*, which is an absence rather than the lowest urgency, so it sorts
+  last ascending: `Urgent, High, Medium, Low, None`.
+- **Ties break by id.** Without a deterministic tiebreak, paging a result set
+  whose rows share a sort key silently repeats and skips rows between pages.
+
+```bash
+curl "http://localhost:5284/api/issues?assignee=ana&priority=High&sort=Created&order=Asc"
+```
+
+## Ordering
+
+Issues carry a fractional `position` — a rank, not a row number. A move is
+computed as the midpoint between the issue's two new neighbours, so it rewrites
+exactly one row instead of renumbering the column.
+
+```bash
+# put issue C between A and B
+curl -X POST http://localhost:5284/api/issues/$C/reorder \
+  -H 'Content-Type: application/json' \
+  -d '{"afterIssueId":"'$A'","beforeIssueId":"'$B'"}'
+```
+
+`stateId` moves the issue to another column; omit both neighbours to append to
+the end. Two rules fall out of the design:
+
+- **Reordering across columns is a state change**, so it is validated by the same
+  state machine as an explicit transition. Dragging a card must not become a back
+  door around the workflow.
+- **Midpoints run out.** Each split halves the gap, so once neighbours get closer
+  than `IssueRanker.MinGap` the column is renumbered into even steps — in the
+  same transaction as the move — rather than letting two ranks collide.
+
+## Cycles
+
+A cycle is the half-open interval `[startsAt, endsAt)`: the start instant belongs
+to the cycle, the end instant is the first that does not. That lets consecutive
+cycles share a boundary without overlapping and without leaving a gap. Cycles
+within a team may not overlap (409), and must end after they start (422).
+
+`status` is always derived from the dates (`Upcoming`/`Active`/`Completed`) and
+never stored, so a cycle cannot drift out of sync with the calendar.
+
+`GET /api/cycles/{id}/summary` rolls up progress. Canceled issues are dropped
+from the scope — work that was called off shouldn't count against a team's
+completion rate — but are still reported separately:
+
+```json
+{
+  "number": 1, "status": "Active",
+  "totalIssues": 3, "scopeIssues": 3, "completedIssues": 1,
+  "inProgressIssues": 1, "canceledIssues": 0,
+  "scopeEstimate": 8, "completedEstimate": 1, "progressPercent": 33.3
+}
+```
+
+## Workflow rules
+
+States are per-team and fully customizable, but each one has a *category*
+(`Backlog`, `Todo`, `InProgress`, `Done`, `Canceled`) and transitions are
+validated between categories, so a team can rename and reorder its workflow
+without inventing new rules. Moves within a category are always allowed.
+
+| From | May move to |
+|---|---|
+| `Backlog` | `Todo`, `InProgress`, `Canceled` |
+| `Todo` | `Backlog`, `InProgress`, `Canceled` |
+| `InProgress` | `Todo`, `Done`, `Canceled` |
+| `Done` | `Todo`, `InProgress` (reopen) |
+| `Canceled` | `Backlog`, `Todo` (reopen) |
+
+Notably forbidden: skipping straight from `Backlog`/`Todo` to `Done`, canceling
+an already-`Done` issue, and resurrecting a `Canceled` issue directly into
+`InProgress` or `Done`.
+
+## Errors
+
+Every failure — from a controller, from model validation, or from routing before
+a controller ever runs — is [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807)
+`application/problem+json`, so a client only ever parses one error shape.
+
+| Status | Means |
+|---|---|
+| `400` | The request is malformed, or points at something that isn't the caller's to point at (another team's state, a label from another team) |
+| `404` | The addressed resource does not exist |
+| `409` | The request is well-formed but collides with existing data (a duplicate team key, an overlapping cycle) |
+| `422` | The request is well-formed and coherent, but a domain rule forbids the outcome (an illegal transition, a backwards date range) |
+
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc4918#section-11.2",
+  "title": "Invalid state transition.",
+  "status": 422,
+  "detail": "Cannot move an issue from 'Backlog' (Backlog) to 'Done' (Done).",
+  "traceId": "00-482031f9e1173765b2f925a2ccc1509b-e9a71d739ab27c1f-00"
+}
+```
+
+## Notes on the data model
+
+SQLite has no native `DateTimeOffset`, and storing one as text makes SQL
+ordering and comparison compare *wall-clock strings* rather than instants — so
+`09:00+09:00` sorts after `10:00-05:00` despite being six hours earlier. Every
+`DateTimeOffset` is therefore persisted as UTC ticks through a value converter
+(`TracerDbContext.ConfigureConventions`), which keeps ordering, filtering, and
+cycle-status checks correct in the database rather than only in memory.

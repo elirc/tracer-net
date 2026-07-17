@@ -22,7 +22,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         var cycles = await db.Cycles
@@ -45,16 +45,19 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
-        if (!CycleSchedule.IsValidRange(request.StartsAt, request.EndsAt))
+        // Non-null: [Required] on the nullable properties already rejected omissions.
+        var (startsAt, endsAt) = (request.StartsAt!.Value, request.EndsAt!.Value);
+
+        if (!CycleSchedule.IsValidRange(startsAt, endsAt))
         {
             return InvalidRange();
         }
 
         var siblings = await db.Cycles.Where(c => c.TeamId == teamId).ToListAsync();
-        if (FindOverlap(siblings, request.StartsAt, request.EndsAt) is { } clash)
+        if (FindOverlap(siblings, startsAt, endsAt) is { } clash)
         {
             return OverlapConflict(clash);
         }
@@ -64,8 +67,8 @@ public class CyclesController(TracerDbContext db) : ControllerBase
             TeamId = teamId,
             Number = siblings.Count == 0 ? 1 : siblings.Max(c => c.Number) + 1,
             Name = request.Name,
-            StartsAt = request.StartsAt,
-            EndsAt = request.EndsAt,
+            StartsAt = startsAt,
+            EndsAt = endsAt,
         };
         db.Cycles.Add(cycle);
         await db.SaveChangesAsync();
@@ -79,7 +82,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
         var cycle = await db.Cycles.FindAsync(id);
         if (cycle is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Cycle", id);
         }
 
         return Ok(cycle.ToDto(DateTimeOffset.UtcNow));
@@ -91,10 +94,12 @@ public class CyclesController(TracerDbContext db) : ControllerBase
         var cycle = await db.Cycles.FindAsync(id);
         if (cycle is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Cycle", id);
         }
 
-        if (!CycleSchedule.IsValidRange(request.StartsAt, request.EndsAt))
+        var (startsAt, endsAt) = (request.StartsAt!.Value, request.EndsAt!.Value);
+
+        if (!CycleSchedule.IsValidRange(startsAt, endsAt))
         {
             return InvalidRange();
         }
@@ -102,14 +107,14 @@ public class CyclesController(TracerDbContext db) : ControllerBase
         var siblings = await db.Cycles
             .Where(c => c.TeamId == cycle.TeamId && c.Id != id)
             .ToListAsync();
-        if (FindOverlap(siblings, request.StartsAt, request.EndsAt) is { } clash)
+        if (FindOverlap(siblings, startsAt, endsAt) is { } clash)
         {
             return OverlapConflict(clash);
         }
 
         cycle.Name = request.Name;
-        cycle.StartsAt = request.StartsAt;
-        cycle.EndsAt = request.EndsAt;
+        cycle.StartsAt = startsAt;
+        cycle.EndsAt = endsAt;
         await db.SaveChangesAsync();
 
         return Ok(cycle.ToDto(DateTimeOffset.UtcNow));
@@ -122,7 +127,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
         var cycle = await db.Cycles.FindAsync(id);
         if (cycle is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Cycle", id);
         }
 
         db.Cycles.Remove(cycle);
@@ -136,7 +141,7 @@ public class CyclesController(TracerDbContext db) : ControllerBase
         var cycle = await db.Cycles.FindAsync(id);
         if (cycle is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Cycle", id);
         }
 
         var issues = await db.Issues
@@ -173,19 +178,11 @@ public class CyclesController(TracerDbContext db) : ControllerBase
     private static Cycle? FindOverlap(List<Cycle> siblings, DateTimeOffset startsAt, DateTimeOffset endsAt) =>
         siblings.FirstOrDefault(c => CycleSchedule.Overlaps(c.StartsAt, c.EndsAt, startsAt, endsAt));
 
-    private UnprocessableEntityObjectResult InvalidRange() =>
-        UnprocessableEntity(new ProblemDetails
-        {
-            Title = "Invalid cycle dates.",
-            Detail = "A cycle must end after it starts.",
-            Status = StatusCodes.Status422UnprocessableEntity,
-        });
+    private ObjectResult InvalidRange() =>
+        this.DomainRuleProblem("Invalid cycle dates.", "A cycle must end after it starts.");
 
-    private ConflictObjectResult OverlapConflict(Cycle clash) =>
-        Conflict(new ProblemDetails
-        {
-            Title = "Overlapping cycle.",
-            Detail = $"These dates overlap cycle {clash.Number}, which runs from {clash.StartsAt:u} to {clash.EndsAt:u}.",
-            Status = StatusCodes.Status409Conflict,
-        });
+    private ObjectResult OverlapConflict(Cycle clash) =>
+        this.ConflictProblem(
+            "Overlapping cycle.",
+            $"These dates overlap cycle {clash.Number}, which runs from {clash.StartsAt:u} to {clash.EndsAt:u}.");
 }

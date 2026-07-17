@@ -26,7 +26,7 @@ public class TeamsController(TracerDbContext db) : ControllerBase
         var team = await db.Teams.FindAsync(id);
         if (team is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", id);
         }
 
         return Ok(new TeamDto(team.Id, team.Name, team.Key, team.CreatedAt));
@@ -37,12 +37,9 @@ public class TeamsController(TracerDbContext db) : ControllerBase
     {
         if (await db.Teams.AnyAsync(t => t.Key == request.Key))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "Team key already in use.",
-                Detail = $"A team with key '{request.Key}' already exists.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "Team key already in use.",
+                $"A team with key '{request.Key}' already exists.");
         }
 
         var team = new Team { Name = request.Name, Key = request.Key };
@@ -60,17 +57,14 @@ public class TeamsController(TracerDbContext db) : ControllerBase
         var team = await db.Teams.FindAsync(id);
         if (team is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", id);
         }
 
         if (await db.Teams.AnyAsync(t => t.Key == request.Key && t.Id != id))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "Team key already in use.",
-                Detail = $"A team with key '{request.Key}' already exists.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "Team key already in use.",
+                $"A team with key '{request.Key}' already exists.");
         }
 
         team.Name = request.Name;
@@ -86,7 +80,7 @@ public class TeamsController(TracerDbContext db) : ControllerBase
         var team = await db.Teams.FindAsync(id);
         if (team is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", id);
         }
 
         db.Teams.Remove(team);

@@ -14,7 +14,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         var labels = await db.Labels
@@ -30,17 +30,14 @@ public class LabelsController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         if (await db.Labels.AnyAsync(l => l.TeamId == teamId && l.Name == request.Name))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "Label name already in use.",
-                Detail = $"Team already has a label named '{request.Name}'.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "Label name already in use.",
+                $"Team already has a label named '{request.Name}'.");
         }
 
         var label = new Label { TeamId = teamId, Name = request.Name, Color = request.Color ?? "#5e6ad2" };
@@ -57,7 +54,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
         var label = await db.Labels.FindAsync(id);
         if (label is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Label", id);
         }
 
         return Ok(new TeamLabelDto(label.Id, label.TeamId, label.Name, label.Color));
@@ -69,17 +66,14 @@ public class LabelsController(TracerDbContext db) : ControllerBase
         var label = await db.Labels.FindAsync(id);
         if (label is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Label", id);
         }
 
         if (await db.Labels.AnyAsync(l => l.TeamId == label.TeamId && l.Name == request.Name && l.Id != id))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "Label name already in use.",
-                Detail = $"Team already has a label named '{request.Name}'.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "Label name already in use.",
+                $"Team already has a label named '{request.Name}'.");
         }
 
         label.Name = request.Name;
@@ -95,7 +89,7 @@ public class LabelsController(TracerDbContext db) : ControllerBase
         var label = await db.Labels.FindAsync(id);
         if (label is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Label", id);
         }
 
         db.Labels.Remove(label);
@@ -109,13 +103,13 @@ public class LabelsController(TracerDbContext db) : ControllerBase
         var issue = await db.Issues.Include(i => i.Labels).SingleOrDefaultAsync(i => i.Id == issueId);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", issueId);
         }
 
         var label = await db.Labels.FindAsync(labelId);
         if (label is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Label", labelId);
         }
 
         if (label.TeamId != issue.TeamId)
@@ -139,13 +133,13 @@ public class LabelsController(TracerDbContext db) : ControllerBase
         var issue = await db.Issues.Include(i => i.Labels).SingleOrDefaultAsync(i => i.Id == issueId);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", issueId);
         }
 
         var label = issue.Labels.SingleOrDefault(l => l.Id == labelId);
         if (label is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Label on this issue", labelId);
         }
 
         issue.Labels.Remove(label);

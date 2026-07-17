@@ -35,15 +35,19 @@ public record CycleSummaryDto(
     int CompletedEstimate,
     double ProgressPercent);
 
+// The dates are nullable so that [Required] can actually do its job: on a
+// non-nullable DateTimeOffset it is a no-op, and an omitted date would quietly
+// bind to 0001-01-01 and be reported as a domain rule violation (422) instead of
+// the missing field (400) that it is.
 public record CreateCycleRequest(
     [MaxLength(200)] string? Name,
-    [Required] DateTimeOffset StartsAt,
-    [Required] DateTimeOffset EndsAt);
+    [Required] DateTimeOffset? StartsAt,
+    [Required] DateTimeOffset? EndsAt);
 
 public record UpdateCycleRequest(
     [MaxLength(200)] string? Name,
-    [Required] DateTimeOffset StartsAt,
-    [Required] DateTimeOffset EndsAt);
+    [Required] DateTimeOffset? StartsAt,
+    [Required] DateTimeOffset? EndsAt);
 
 public static class CycleMappings
 {

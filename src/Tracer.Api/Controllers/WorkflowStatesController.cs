@@ -14,7 +14,7 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         var states = await db.WorkflowStates
@@ -30,17 +30,14 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
     {
         if (!await db.Teams.AnyAsync(t => t.Id == teamId))
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         if (await db.WorkflowStates.AnyAsync(s => s.TeamId == teamId && s.Name == request.Name))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "State name already in use.",
-                Detail = $"Team already has a state named '{request.Name}'.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "State name already in use.",
+                $"Team already has a state named '{request.Name}'.");
         }
 
         var siblings = await db.WorkflowStates
@@ -74,7 +71,7 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
         var state = await db.WorkflowStates.FindAsync(id);
         if (state is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Workflow state", id);
         }
 
         return Ok(state.ToDto());
@@ -86,17 +83,14 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
         var state = await db.WorkflowStates.FindAsync(id);
         if (state is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Workflow state", id);
         }
 
         if (await db.WorkflowStates.AnyAsync(s => s.TeamId == state.TeamId && s.Name == request.Name && s.Id != id))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "State name already in use.",
-                Detail = $"Team already has a state named '{request.Name}'.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "State name already in use.",
+                $"Team already has a state named '{request.Name}'.");
         }
 
         var siblings = await db.WorkflowStates
@@ -126,26 +120,21 @@ public class WorkflowStatesController(TracerDbContext db) : ControllerBase
         var state = await db.WorkflowStates.FindAsync(id);
         if (state is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Workflow state", id);
         }
 
         if (await db.Issues.AnyAsync(i => i.StateId == id))
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "State has issues.",
-                Detail = "Move or delete the issues in this state before deleting it.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "State has issues.",
+                "Move or delete the issues in this state before deleting it.");
         }
 
         if (await db.WorkflowStates.CountAsync(s => s.TeamId == state.TeamId) == 1)
         {
-            return Conflict(new ProblemDetails
-            {
-                Title = "Cannot delete the team's last workflow state.",
-                Status = StatusCodes.Status409Conflict,
-            });
+            return this.ConflictProblem(
+                "Cannot delete the team's last workflow state.",
+                "A team must keep at least one workflow state for its issues to live in.");
         }
 
         db.WorkflowStates.Remove(state);
