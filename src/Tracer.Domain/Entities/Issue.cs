@@ -40,6 +40,15 @@ public class Issue
     public Guid? CycleId { get; set; }
     public Cycle? Cycle { get; set; }
 
+    /// <summary>
+    /// The issue this one is a sub-issue of; null when it stands on its own.
+    /// A parent is always in the same team — see <c>IssuesController</c> — so the
+    /// hierarchy never crosses the boundary that authorization is drawn on.
+    /// </summary>
+    public Guid? ParentId { get; set; }
+    public Issue? Parent { get; set; }
+    public List<Issue> Children { get; set; } = [];
+
     /// <summary>Fractional rank used to order issues within a state column.</summary>
     public double Position { get; set; }
 
@@ -48,4 +57,10 @@ public class Issue
 
     public List<Label> Labels { get; set; } = [];
     public List<Comment> Comments { get; set; } = [];
+
+    /// <summary>Relations where this issue is the stored source ("this blocks that").</summary>
+    public List<IssueRelation> OutgoingRelations { get; set; } = [];
+
+    /// <summary>Relations where this issue is the stored target ("that blocks this").</summary>
+    public List<IssueRelation> IncomingRelations { get; set; } = [];
 }
