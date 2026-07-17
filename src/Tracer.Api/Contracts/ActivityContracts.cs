@@ -45,3 +45,25 @@ public record ActivityFeedQuery
     [Range(1, 100)]
     public int PageSize { get; init; } = 50;
 }
+
+public static class ActivityMappings
+{
+    /// <summary>
+    /// Requires <see cref="Activity.Team"/> to be loaded — the identifier is
+    /// rendered from the live team key so a renamed team renames its history, as
+    /// identifiers do everywhere else.
+    /// </summary>
+    public static ActivityDto ToDto(this Activity activity) => new(
+        activity.Id,
+        activity.TeamId,
+        activity.IssueId,
+        $"{activity.Team!.Key}-{activity.IssueNumber}",
+        activity.IssueTitle,
+        activity.Type,
+        activity.Field,
+        activity.OldValue,
+        activity.NewValue,
+        activity.ActorId,
+        activity.ActorHandle,
+        activity.CreatedAt);
+}

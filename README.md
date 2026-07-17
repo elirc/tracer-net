@@ -178,6 +178,10 @@ Admin-only, except where noted.
 | `POST` | `/api/issues/{id}/reorder` | Reposition within a column, or move columns — see [Ordering](#ordering) |
 | `GET` | `/api/issues/{id}/children` | Sub-issues plus a progress roll-up — see [Sub-issues](#sub-issues) |
 | `GET` | `/api/issues/{id}/activity` | This issue's timeline — see [Activity](#activity) |
+| `GET` | `/api/issues/{id}/subscription` | Whether you're watching it, and why |
+| `PUT` | `/api/issues/{id}/subscription` | Watch it (idempotent) |
+| `DELETE` | `/api/issues/{id}/subscription` | Stop watching |
+| `GET` | `/api/issues/{id}/subscribers` | Everyone watching it, and why |
 | `DELETE` | `/api/issues/{id}` | Delete an issue; its children survive, un-nested |
 
 ### Activity
@@ -200,6 +204,16 @@ Admin-only, except where noted.
 | `GET` | `/api/webhooks/{id}/deliveries` | Delivery log; `?status=Pending\|Delivered\|Failed` |
 | `GET` | `/api/webhooks/{id}/deliveries/{deliveryId}` | One delivery, with the exact bytes that were sent |
 | `POST` | `/api/webhooks/{id}/deliveries/{deliveryId}/redeliver` | Queue a finished delivery to be tried again |
+
+### Notifications
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/notifications` | Your inbox, newest first; `?unread=true` |
+| `GET` | `/api/notifications/unread-count` | The badge |
+| `POST` | `/api/notifications/{id}/read` | Mark one read |
+| `POST` | `/api/notifications/{id}/unread` | Mark one unread again |
+| `POST` | `/api/notifications/read-all` | Clear the badge |
 
 ### Relations
 
@@ -521,6 +535,44 @@ Closing it properly means resolving at send time and pinning the connection to
 the address that was checked, via a custom `SocketsHttpHandler.ConnectCallback`.
 There's a test asserting this gap exists, so nobody reads the policy and assumes
 otherwise.
+
+## Notifications
+
+Watch an issue and its notable changes land in your inbox. You are auto-subscribed
+when you create an issue (`Author`), comment on it (`Commenter`), or are assigned
+it (`Assignee`), and can watch or unwatch anything you can see (`Manual`).
+Subscribers are *accounts*, not assignee strings — assignment resolves the handle
+to a user and quietly does nothing when no account owns it, because you cannot
+route an inbox item to a name that is only a label.
+
+Notifications fan out from the **same activity spine** the feed and webhooks use:
+`ActivityRecorder` queues them in the transaction that records the change, so a
+committed change never leaves its watchers untold and a notification never exists
+for a change that rolled back.
+
+Two rules shape what lands:
+
+- **You are never notified of your own action.** The one thing you reliably
+  already know is the thing you just did. The actor is excluded from fan-out — so
+  the assignee just added a moment ago (and every other watcher) hears about the
+  assignment, but the person who *made* it does not.
+- **The inbox is curated; the audit log is exhaustive.** Only notable changes
+  notify — comments, state changes, assignment, a new relation, a re-parenting, a
+  deletion. A title or estimate edit is in the feed but is not a reason to
+  interrupt anyone. This is the same split `WebhookEvents` makes: the internal
+  record and the thing you push at people are different sizes on purpose, because
+  an inbox that pings on "estimate 3 → 5" is one people stop reading.
+
+An inbox item points at the activity rather than copying it, so it renders
+exactly as a feed row and survives the deletion of its issue just as the audit
+entry does. `read` is a timestamp, not a flag, so "how long did this sit unseen"
+stays answerable; `read-all` is one set-based update, not a load-everything loop.
+
+One honest limitation: unwatching removes the row, and a later comment or
+assignment will auto-subscribe you again — auto-subscribe cannot tell "never
+wanted this" from "not added yet", since both are the absence of a row. A durable
+mute would need a row that says *no*, which is a deliberate feature rather than
+something to smuggle in.
 
 ## Search
 

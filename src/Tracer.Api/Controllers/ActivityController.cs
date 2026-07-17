@@ -108,27 +108,10 @@ public class ActivityController(TracerDbContext db, TeamAccess access) : Control
             .ToListAsync();
 
         return Ok(new PagedResult<ActivityDto>(
-            results.Select(ToDto).ToList(),
+            results.Select(a => a.ToDto()).ToList(),
             query.Page,
             query.PageSize,
             total,
             (int)Math.Ceiling(total / (double)query.PageSize)));
     }
-
-    private static ActivityDto ToDto(Activity activity) => new(
-        activity.Id,
-        activity.TeamId,
-        activity.IssueId,
-        // Rendered from the live team key rather than a frozen copy, so a renamed
-        // team renames its history too — which is how identifiers already behave
-        // everywhere else in this API.
-        $"{activity.Team!.Key}-{activity.IssueNumber}",
-        activity.IssueTitle,
-        activity.Type,
-        activity.Field,
-        activity.OldValue,
-        activity.NewValue,
-        activity.ActorId,
-        activity.ActorHandle,
-        activity.CreatedAt);
 }

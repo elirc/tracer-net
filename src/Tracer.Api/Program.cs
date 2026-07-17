@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Tracer.Api.Auth;
+using Tracer.Api.Notifications;
 using Tracer.Api.Webhooks;
 using Tracer.Infrastructure;
 
@@ -30,6 +31,7 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddScoped<TeamAccess>();
 builder.Services.AddScoped<ActivityRecorder>();
+builder.Services.AddScoped<NotificationFanout>();
 builder.Services.AddScoped<WebhookOutbox>();
 builder.Services.AddScoped<WebhookSender>();
 
