@@ -176,7 +176,16 @@ Admin-only, except where noted.
 | `PUT` | `/api/issues/{id}` | Update an issue's fields, project, cycle, and assignee |
 | `POST` | `/api/issues/{id}/transitions` | Move to another state; validated, appends to the target column |
 | `POST` | `/api/issues/{id}/reorder` | Reposition within a column, or move columns — see [Ordering](#ordering) |
-| `DELETE` | `/api/issues/{id}` | Delete an issue |
+| `GET` | `/api/issues/{id}/children` | Sub-issues plus a progress roll-up — see [Sub-issues](#sub-issues) |
+| `DELETE` | `/api/issues/{id}` | Delete an issue; its children survive, un-nested |
+
+### Relations
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/issues/{issueId}/relations` | Links involving this issue, named from its point of view |
+| `POST` | `/api/issues/{issueId}/relations` | Link two issues — see [Relations](#relations-1) |
+| `DELETE` | `/api/issues/{issueId}/relations/{relationId}` | Cut a link; reachable from either end |
 
 ### Labels
 
@@ -216,6 +225,94 @@ the client would be told its impersonation had worked.
 | `PUT` | `/api/cycles/{id}` | Move or rename a cycle |
 | `DELETE` | `/api/cycles/{id}` | Delete a cycle; its issues survive, unscheduled |
 | `GET` | `/api/cycles/{id}/summary` | Progress roll-up — see [Cycles](#cycles-1) |
+
+## Relations
+
+Issues link to each other five ways — `Relates`, `Blocks`, `BlockedBy`,
+`Duplicates`, `DuplicatedBy` — but only **three are stored**. "Blocked by" is not
+a fourth kind of link; it is the same link seen from the other end.
+
+```bash
+# these two calls produce the identical row
+curl -X POST .../api/issues/$BLOCKER/relations -d '{"kind":"Blocks","issueId":"'$BLOCKED'"}'
+curl -X POST .../api/issues/$BLOCKED/relations -d '{"kind":"BlockedBy","issueId":"'$BLOCKER'"}'
+```
+
+**One fact, one row.** The alternative — a row per direction — makes every link
+two writes that can disagree: delete one side, or fail between them, and the
+graph claims A blocks B while B is blocked by nothing. So a request is
+canonicalized to a single stored row and the inverse is derived on read. `kind`
+in a response is therefore *relative to the issue you asked about*: the same row
+reads `Blocks` to one end and `BlockedBy` to the other, and carries the same
+relation `id` both times.
+
+**Symmetry needs normalizing, direction must not be.** `Relates` has no
+direction, so "A relates to B" and "B relates to A" are one sentence — but stored
+as-is they are two different tuples, and the unique index that enforces "one
+fact, one row" compares tuples, not meanings. Symmetric relations therefore get
+their endpoints put in a fixed order first (which order is arbitrary; that it is
+*stable* is the point). Directed relations keep their direction: "A blocks B" and
+"B blocks A" are contradictory claims, not one fact said twice — and collapsing
+them would destroy the cycle check that exists to catch exactly that pair.
+
+That check-plus-index pairing is deliberate. The check makes the ordinary
+duplicate a clean `409` without an exception; the index is what is actually
+*true*, because two concurrent requests both pass a check before either writes.
+The loser of that race is translated back into the same `409` rather than a 500.
+
+| Guard | Status |
+|---|---|
+| Relating an issue to itself | `422` |
+| The same link twice (including the mirror of a symmetric one) | `409` |
+| A blocking or duplication **cycle**, at any depth | `422` |
+| An issue in another team, or one that doesn't exist | `400` |
+
+A blocking cycle is a deadlock stated as data — A waits on B, B waits on A, and
+no sequence of work finishes either — so it is refused at any depth. `Relates`
+cycles are fine: with no direction there is nothing to deadlock. Fan-out and
+diamonds (A blocks B and C, both block D) are not cycles and are allowed.
+
+**Links stay inside a team**, because the team is the boundary authorization is
+drawn on. A cross-team link would either leak the far issue's title into a
+response the caller can't see, or need per-row redaction on every read — so it is
+a `400`, the same answer the API already gives for another team's label or state.
+
+## Sub-issues
+
+An issue may have a `parentId`, forming a hierarchy of any depth. Set it on
+create or update; as with `projectId` and `cycleId`, a `PUT` that omits it
+un-nests the issue.
+
+`GET /api/issues/{id}/children` returns the sub-issues and a roll-up:
+
+```json
+{
+  "rollup": {
+    "totalIssues": 2, "scopeIssues": 1, "completedIssues": 1,
+    "canceledIssues": 1, "scopeEstimate": 2, "progressPercent": 100
+  },
+  "items": [ ... ]
+}
+```
+
+Canceled children leave the scope but stay reported — the same rule the cycle
+roll-up applies, because a product that answers "how far along is this?" two
+different ways in two places is worse than either answer.
+
+The roll-up lives on this endpoint rather than on every `IssueDto` so that
+listing a board stays one query: hanging it off each issue would mean counting
+children per row to answer a question only an issue's own page asks.
+
+Two guards:
+
+- **A parent chain cannot loop.** Not merely untidy — a loop hangs every "walk up
+  to the root" the product does. Nothing in a self-referencing foreign key
+  prevents it, so `422`.
+- **A parent must be in the same team** (`400`), for the same reason relations are.
+
+Deleting a parent **releases** its children rather than deleting them — the call
+this product already makes for a deleted project or cycle. "I deleted the
+umbrella ticket" must not silently mean "I deleted the six tickets under it".
 
 ## Search
 

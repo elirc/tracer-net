@@ -159,6 +159,12 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             return ValidationProblem(title: "Unknown cycle for this team.");
         }
 
+        if (request.ParentId is { } newParentId
+            && !await db.Issues.AnyAsync(i => i.Id == newParentId && i.TeamId == teamId))
+        {
+            return UnknownParent();
+        }
+
         var nextNumber = await db.Issues.Where(i => i.TeamId == teamId).MaxAsync(i => (int?)i.Number) ?? 0;
         var nextPosition = await db.Issues
             .Where(i => i.TeamId == teamId && i.StateId == state.Id)
@@ -176,6 +182,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             StateId = state.Id,
             ProjectId = request.ProjectId,
             CycleId = request.CycleId,
+            ParentId = request.ParentId,
             Position = nextPosition + 1,
         };
         db.Issues.Add(issue);
@@ -225,6 +232,23 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
             return ValidationProblem(title: "Unknown cycle for this team.");
         }
 
+        if (request.ParentId is { } parentId && parentId != issue.ParentId)
+        {
+            if (!await db.Issues.AnyAsync(i => i.Id == parentId && i.TeamId == issue.TeamId))
+            {
+                return UnknownParent();
+            }
+
+            if (await WouldCycleAsync(issue, parentId))
+            {
+                return this.DomainRuleProblem(
+                    "Circular sub-issue.",
+                    parentId == issue.Id
+                        ? "An issue cannot be its own parent."
+                        : "That issue is already somewhere below this one, so this would close a loop.");
+            }
+        }
+
         issue.Title = request.Title;
         issue.Description = request.Description;
         issue.Priority = request.Priority;
@@ -232,6 +256,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
         issue.Assignee = request.Assignee;
         issue.ProjectId = request.ProjectId;
         issue.CycleId = request.CycleId;
+        issue.ParentId = request.ParentId;
         issue.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
 
@@ -396,6 +421,50 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
         return Ok(issue.ToDto(issue.Team!.Key, target.Name));
     }
 
+    /// <summary>
+    /// An issue's sub-issues, with the roll-up a parent needs to show progress.
+    ///
+    /// The roll-up lives here rather than on <see cref="IssueDto"/> so that
+    /// listing a board stays one query. Hanging it off every issue in a list
+    /// would mean counting children per row — the N+1 this product has an open
+    /// ticket about — to answer a question only an issue's own page asks.
+    /// </summary>
+    [HttpGet("api/issues/{id:guid}/children")]
+    public async Task<ActionResult<SubIssuesDto>> Children(Guid id)
+    {
+        var parent = await db.Issues.Include(i => i.Team).SingleOrDefaultAsync(i => i.Id == id);
+        if (parent is null || !await access.CanAccessTeamAsync(User, parent.TeamId))
+        {
+            return this.NotFoundProblem("Issue", id);
+        }
+
+        var children = await db.Issues
+            .Where(i => i.ParentId == id)
+            .Include(i => i.State)
+            .Include(i => i.Labels)
+            .OrderBy(i => i.State!.Position)
+            .ThenBy(i => i.Position)
+            .ToListAsync();
+
+        var canceled = children.Where(i => i.State!.Type == WorkflowStateType.Canceled).ToList();
+        var scope = children.Where(i => i.State!.Type != WorkflowStateType.Canceled).ToList();
+        var completed = scope.Where(i => i.State!.Type == WorkflowStateType.Done).ToList();
+
+        var rollup = new SubIssueRollupDto(
+            TotalIssues: children.Count,
+            ScopeIssues: scope.Count,
+            CompletedIssues: completed.Count,
+            InProgressIssues: scope.Count(i => i.State!.Type == WorkflowStateType.InProgress),
+            CanceledIssues: canceled.Count,
+            ScopeEstimate: scope.Sum(i => i.Estimate ?? 0),
+            CompletedEstimate: completed.Sum(i => i.Estimate ?? 0),
+            ProgressPercent: scope.Count == 0 ? 0 : Math.Round(completed.Count * 100.0 / scope.Count, 1));
+
+        return Ok(new SubIssuesDto(
+            rollup,
+            children.Select(i => i.ToDto(parent.Team!.Key, i.State!.Name)).ToList()));
+    }
+
     [HttpDelete("api/issues/{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
@@ -414,6 +483,34 @@ public class IssuesController(TracerDbContext db, TeamAccess access) : Controlle
         this.DomainRuleProblem(
             "Invalid state transition.",
             $"Cannot move an issue from '{from.Name}' ({from.Type}) to '{to.Name}' ({to.Type}).");
+
+    /// <summary>
+    /// A parent from another team is a 400, not a 404: the caller may well be
+    /// able to see it, it is simply not theirs to point at from here. That is
+    /// the same answer this controller already gives for another team's state,
+    /// project, or cycle.
+    /// </summary>
+    private ActionResult UnknownParent() =>
+        ValidationProblem(title: "Unknown parent issue for this team.");
+
+    /// <summary>
+    /// True when re-parenting <paramref name="issue"/> under
+    /// <paramref name="parentId"/> would close a loop.
+    ///
+    /// The team's parent edges are loaded in one query and walked in memory
+    /// rather than climbing the chain with a query per level: the chain is short,
+    /// but a query per level makes the cost of a legal move depend on how deeply
+    /// somebody else happened to nest things.
+    /// </summary>
+    private async Task<bool> WouldCycleAsync(Issue issue, Guid parentId)
+    {
+        var edges = await db.Issues
+            .Where(i => i.TeamId == issue.TeamId && i.ParentId != null)
+            .Select(i => new { i.Id, ParentId = i.ParentId!.Value })
+            .ToDictionaryAsync(i => i.Id, i => i.ParentId);
+
+        return IssueGraph.WouldCycle(edges, issue.Id, parentId);
+    }
 
     /// <summary>
     /// Ties are broken by id so that paging through a sorted result cannot

@@ -16,6 +16,7 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<User> Users => Set<User>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
+    public DbSet<IssueRelation> IssueRelations => Set<IssueRelation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -117,9 +118,54 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
                 .HasForeignKey(i => i.CycleId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Deleting a parent releases its children rather than taking them
+            // with it: the same call the product already makes for a deleted
+            // project or cycle. Sub-issues are real work, and "I deleted the
+            // umbrella ticket" should not silently mean "I deleted the six
+            // tickets under it".
+            issue.HasOne(i => i.Parent)
+                .WithMany(i => i.Children)
+                .HasForeignKey(i => i.ParentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            issue.HasIndex(i => i.ParentId);
+
             issue.HasMany(i => i.Labels)
                 .WithMany(l => l.Issues)
                 .UsingEntity(j => j.ToTable("IssueLabels"));
+        });
+
+        modelBuilder.Entity<IssueRelation>(relation =>
+        {
+            // A relation only means anything while both ends exist, so it goes
+            // when either does. Both sides cascade: unlike a parent, there is no
+            // half of a link worth keeping.
+            relation.HasOne(r => r.SourceIssue)
+                .WithMany(i => i.OutgoingRelations)
+                .HasForeignKey(r => r.SourceIssueId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            relation.HasOne(r => r.TargetIssue)
+                .WithMany(i => i.IncomingRelations)
+                .HasForeignKey(r => r.TargetIssueId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Reading an issue's relations asks both "what do I point at?" and
+            // "what points at me?", so both directions are indexed.
+            relation.HasIndex(r => new { r.SourceIssueId, r.Type });
+            relation.HasIndex(r => new { r.TargetIssueId, r.Type });
+
+            // The same pair may hold different kinds of link (A blocks B *and*
+            // A duplicates B), but not the same one twice. This index — not the
+            // controller's check — is what makes that true: two concurrent
+            // requests can both pass a check before either writes.
+            //
+            // It only works because IssueRelations.Canonicalize puts symmetric
+            // relations in a fixed endpoint order first. A unique index compares
+            // tuples, not meanings, so without that normalization "A relates to
+            // B" and "B relates to A" are two different tuples and this index
+            // would wave the duplicate straight through.
+            relation.HasIndex(r => new { r.SourceIssueId, r.TargetIssueId, r.Type }).IsUnique();
         });
 
         modelBuilder.Entity<Label>(label =>

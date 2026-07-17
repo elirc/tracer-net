@@ -19,6 +19,7 @@ public record IssueDto(
     string State,
     Guid? ProjectId,
     Guid? CycleId,
+    Guid? ParentId,
     double Position,
     IReadOnlyList<LabelDto> Labels,
     DateTimeOffset CreatedAt,
@@ -32,8 +33,11 @@ public record CreateIssueRequest(
     Guid? StateId = null,
     Guid? ProjectId = null,
     Guid? CycleId = null,
-    [MaxLength(100)] string? Assignee = null);
+    [MaxLength(100)] string? Assignee = null,
+    Guid? ParentId = null);
 
+// ParentId follows ProjectId and CycleId: this is a PUT, so omitting it means
+// "no parent" and un-nests the issue. Sending it means "this parent".
 public record UpdateIssueRequest(
     [Required, MaxLength(500)] string Title,
     string? Description,
@@ -41,7 +45,8 @@ public record UpdateIssueRequest(
     [Range(0, 100)] int? Estimate,
     Guid? ProjectId,
     Guid? CycleId = null,
-    [MaxLength(100)] string? Assignee = null);
+    [MaxLength(100)] string? Assignee = null,
+    Guid? ParentId = null);
 
 public static class IssueMappings
 {
@@ -59,6 +64,7 @@ public static class IssueMappings
         stateName,
         issue.ProjectId,
         issue.CycleId,
+        issue.ParentId,
         issue.Position,
         issue.Labels.Select(l => new LabelDto(l.Id, l.Name, l.Color)).ToList(),
         issue.CreatedAt,
