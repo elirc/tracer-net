@@ -1,0 +1,48 @@
+namespace Tracer.Domain.Entities;
+
+public enum IssuePriority
+{
+    None = 0,
+    Urgent = 1,
+    High = 2,
+    Medium = 3,
+    Low = 4,
+}
+
+public class Issue
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid TeamId { get; set; }
+    public Team? Team { get; set; }
+
+    /// <summary>Per-team sequential number; combined with the team key it forms e.g. "ENG-42".</summary>
+    public int Number { get; set; }
+
+    public required string Title { get; set; }
+
+    public string? Description { get; set; }
+
+    public IssuePriority Priority { get; set; } = IssuePriority.None;
+
+    /// <summary>Story-point estimate; null when unestimated.</summary>
+    public int? Estimate { get; set; }
+
+    public Guid StateId { get; set; }
+    public WorkflowState? State { get; set; }
+
+    public Guid? ProjectId { get; set; }
+    public Project? Project { get; set; }
+
+    public Guid? CycleId { get; set; }
+    public Cycle? Cycle { get; set; }
+
+    /// <summary>Fractional rank used to order issues within a state column.</summary>
+    public double Position { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public List<Label> Labels { get; set; } = [];
+    public List<Comment> Comments { get; set; } = [];
+}
