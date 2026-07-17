@@ -11,7 +11,7 @@ namespace Tracer.Api.Controllers;
 public class ProjectsController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/projects")]
-    public async Task<ActionResult<List<ProjectDto>>> ListForTeam(Guid teamId)
+    public async Task<ActionResult<PagedResult<ProjectDto>>> ListForTeam(Guid teamId, [FromQuery] PageQuery paging)
     {
         if (!await access.CanAccessTeamAsync(User, teamId))
         {
@@ -21,8 +21,9 @@ public class ProjectsController(TracerDbContext db, TeamAccess access) : Control
         var projects = await db.Projects
             .Where(p => p.TeamId == teamId)
             .OrderBy(p => p.CreatedAt)
+            .ThenBy(p => p.Id)
             .Select(p => new ProjectDto(p.Id, p.TeamId, p.Name, p.Description, p.CreatedAt))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(projects);
     }
 

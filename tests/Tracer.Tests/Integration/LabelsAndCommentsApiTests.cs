@@ -46,7 +46,7 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
             new { name = "regression-p0", color = "#ff0000" });
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
 
-        var listed = await _client.GetFromJsonAsync<List<LabelPayload>>($"/api/teams/{team.Id}/labels");
+        var listed = await _client.GetListAsync<LabelPayload>($"/api/teams/{team.Id}/labels");
         Assert.Contains(listed!, l => l.Name == "regression-p0");
 
         var deleted = await _client.DeleteAsync($"/api/labels/{label.Id}");
@@ -118,7 +118,7 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
 
         await _client.PostAsJsonAsync($"/api/issues/{issue.Id}/comments", new { body = "second" });
 
-        var comments = await _client.GetFromJsonAsync<List<CommentPayload>>($"/api/issues/{issue.Id}/comments");
+        var comments = await _client.GetListAsync<CommentPayload>($"/api/issues/{issue.Id}/comments");
         Assert.Equal(2, comments!.Count);
         Assert.Equal(["first!", "second"], comments.Select(c => c.Body).ToArray());
 
@@ -128,7 +128,7 @@ public class LabelsAndCommentsApiTests : IClassFixture<TracerApiFactory>
         var deleted = await _client.DeleteAsync($"/api/comments/{firstComment.Id}");
         Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
 
-        var remaining = await _client.GetFromJsonAsync<List<CommentPayload>>($"/api/issues/{issue.Id}/comments");
+        var remaining = await _client.GetListAsync<CommentPayload>($"/api/issues/{issue.Id}/comments");
         Assert.Single(remaining!);
     }
 

@@ -39,7 +39,7 @@ public class AuthorizationApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> TeamAsync(string key)
     {
-        var teams = await _admin.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _admin.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 
@@ -55,7 +55,7 @@ public class AuthorizationApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task A_member_sees_only_their_own_teams_in_the_list()
     {
-        var teams = await _member.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _member.GetListAsync<TeamPayload>("/api/teams");
 
         Assert.Equal(["ENG"], teams!.Select(t => t.Key).ToArray());
     }
@@ -63,7 +63,7 @@ public class AuthorizationApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task An_admin_sees_every_team_in_the_list()
     {
-        var teams = await _admin.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _admin.GetListAsync<TeamPayload>("/api/teams");
 
         Assert.Contains(teams!, t => t.Key == "ENG");
         Assert.Contains(teams!, t => t.Key == "DES");
@@ -142,7 +142,7 @@ public class AuthorizationApiTests : IClassFixture<TracerApiFactory>
     public async Task A_member_cannot_add_themselves_to_another_team()
     {
         var des = await TeamAsync("DES");
-        var users = await _admin.GetFromJsonAsync<List<UserRow>>("/api/users");
+        var users = await _admin.GetListAsync<UserRow>("/api/users");
         var ben = users!.Single(u => u.Handle == "ben");
 
         var response = await _member.PutAsync($"/api/users/{ben.Id}/teams/{des.Id}", null);

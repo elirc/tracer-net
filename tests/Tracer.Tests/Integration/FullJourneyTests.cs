@@ -120,7 +120,7 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
             await _client.PostAsJsonAsync($"/api/issues/{feature.Id}/reorder", new { beforeIssueId = chore.Id }),
             HttpStatusCode.OK);
 
-        var backlogOrder = (await _client.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{team.Id}/issues"))!
+        var backlogOrder = (await _client.GetListAsync<IssuePayload>($"/api/teams/{team.Id}/issues"))!
             .Where(i => i.State == "Backlog")
             .OrderBy(i => i.Position)
             .Select(i => i.Identifier)
@@ -181,7 +181,7 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task Seed_data_is_present_and_coherent_over_the_api()
     {
-        var teams = (await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams"))!;
+        var teams = (await _client.GetListAsync<TeamPayload>("/api/teams"))!;
         var eng = teams.Single(t => t.Key == "ENG");
         var des = teams.Single(t => t.Key == "DES");
         Assert.Equal("Engineering", eng.Name);
@@ -195,7 +195,7 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
                 states.OrderBy(s => s.Position).Select(s => s.Name).ToArray());
         }
 
-        var engIssues = (await _client.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{eng.Id}/issues"))!;
+        var engIssues = (await _client.GetListAsync<IssuePayload>($"/api/teams/{eng.Id}/issues"))!;
         Assert.Equal(["ENG-1", "ENG-2", "ENG-3", "ENG-4"], engIssues.Select(i => i.Identifier).Order().ToArray());
 
         // The samples exercise the interesting shapes: labels, comments, a
@@ -207,10 +207,10 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
         Assert.Contains(engIssues, i => i.CycleId is not null);
         Assert.All(engIssues, i => Assert.Equal(eng.Id, i.TeamId));
 
-        var projects = (await _client.GetFromJsonAsync<List<ProjectPayload>>($"/api/teams/{eng.Id}/projects"))!;
+        var projects = (await _client.GetListAsync<ProjectPayload>($"/api/teams/{eng.Id}/projects"))!;
         Assert.Equal(["Performance", "Public API"], projects.Select(p => p.Name).Order().ToArray());
 
-        var labels = (await _client.GetFromJsonAsync<List<LabelPayload>>($"/api/teams/{eng.Id}/labels"))!;
+        var labels = (await _client.GetListAsync<LabelPayload>($"/api/teams/{eng.Id}/labels"))!;
         Assert.Equal(["bug", "chore", "feature"], labels.Select(l => l.Name).Order().ToArray());
 
         // The seeded cycles are positioned around today, so one is live and one
@@ -227,8 +227,8 @@ public class FullJourneyTests : IClassFixture<TracerApiFactory>
         Assert.Equal(1, summary.CompletedIssues);
         Assert.True(summary.ProgressPercent > 0);
 
-        var comments = await _client.GetFromJsonAsync<List<CommentPayload>>(
+        var comments = await _client.GetListAsync<CommentPayload>(
             $"/api/issues/{engIssues.Single(i => i.Identifier == "ENG-1").Id}/comments");
-        Assert.Equal(2, comments!.Count);
+        Assert.Equal(2, comments.Count);
     }
 }

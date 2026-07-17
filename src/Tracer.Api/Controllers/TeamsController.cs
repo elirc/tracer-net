@@ -27,7 +27,7 @@ public class TeamsController(TracerDbContext db, TeamAccess access) : Controller
     /// nothing was denied them, there is simply nothing there.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<List<TeamDto>>> List()
+    public async Task<ActionResult<PagedResult<TeamDto>>> List([FromQuery] PageQuery paging)
     {
         var teams = db.Teams.AsQueryable();
         if (!User.IsAdmin())
@@ -38,8 +38,9 @@ public class TeamsController(TracerDbContext db, TeamAccess access) : Controller
 
         var results = await teams
             .OrderBy(t => t.CreatedAt)
+            .ThenBy(t => t.Id)
             .Select(t => new TeamDto(t.Id, t.Name, t.Key, t.CreatedAt))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(results);
     }
 
@@ -57,7 +58,7 @@ public class TeamsController(TracerDbContext db, TeamAccess access) : Controller
 
     /// <summary>The roster of a team the caller is on.</summary>
     [HttpGet("{teamId:guid}/members")]
-    public async Task<ActionResult<List<TeamMemberDto>>> ListMembers(Guid teamId)
+    public async Task<ActionResult<PagedResult<TeamMemberDto>>> ListMembers(Guid teamId, [FromQuery] PageQuery paging)
     {
         if (!await access.CanAccessTeamAsync(User, teamId))
         {
@@ -67,8 +68,9 @@ public class TeamsController(TracerDbContext db, TeamAccess access) : Controller
         var members = await db.TeamMemberships
             .Where(m => m.TeamId == teamId)
             .OrderBy(m => m.User!.Handle)
+            .ThenBy(m => m.UserId)
             .Select(m => new TeamMemberDto(m.UserId, m.User!.Handle, m.User.Name, m.User.Role, m.CreatedAt))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(members);
     }
 

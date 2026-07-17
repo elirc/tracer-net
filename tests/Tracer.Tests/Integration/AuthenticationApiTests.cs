@@ -112,7 +112,7 @@ public class AuthenticationApiTests : IClassFixture<TracerApiFactory>
         Assert.Equal("mira", me!.Handle);
 
         // And is never handed back — only the prefix identifies it afterwards.
-        var listed = await admin.GetFromJsonAsync<List<KeyPayload>>($"/api/users/{user.Id}/api-keys");
+        var listed = await admin.GetListAsync<KeyPayload>($"/api/users/{user.Id}/api-keys");
         var stored = Assert.Single(listed!);
         Assert.Equal(key.Prefix, stored.Prefix);
         var raw = await (await admin.GetAsync($"/api/api-keys/{key.Id}")).Content.ReadAsStringAsync();
@@ -176,7 +176,7 @@ public class AuthenticationApiTests : IClassFixture<TracerApiFactory>
     public async Task A_member_manages_their_own_keys_but_not_another_users()
     {
         var admin = _factory.CreateAdminClient();
-        var users = (await admin.GetFromJsonAsync<List<UserPayload>>("/api/users"))!;
+        var users = (await admin.GetListAsync<UserPayload>("/api/users"))!;
         var ben = users.Single(u => u.Handle == "ben");
         var dana = users.Single(u => u.Handle == "dana");
         var benClient = _factory.CreateEngMemberClient();
@@ -200,7 +200,7 @@ public class AuthenticationApiTests : IClassFixture<TracerApiFactory>
     public async Task Another_users_key_is_not_found_rather_than_forbidden()
     {
         var admin = _factory.CreateAdminClient();
-        var users = (await admin.GetFromJsonAsync<List<UserPayload>>("/api/users"))!;
+        var users = (await admin.GetListAsync<UserPayload>("/api/users"))!;
         var dana = users.Single(u => u.Handle == "dana");
         var minted = await admin.PostAsJsonAsync($"/api/users/{dana.Id}/api-keys", new { name = "dana's" });
         var key = await minted.Content.ReadFromJsonAsync<CreatedKeyPayload>();

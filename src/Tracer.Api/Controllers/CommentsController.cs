@@ -28,7 +28,7 @@ namespace Tracer.Api.Controllers;
 public class CommentsController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/issues/{issueId:guid}/comments")]
-    public async Task<ActionResult<List<CommentDto>>> ListForIssue(Guid issueId)
+    public async Task<ActionResult<PagedResult<CommentDto>>> ListForIssue(Guid issueId, [FromQuery] PageQuery paging)
     {
         if (await FindVisibleIssueAsync(issueId) is null)
         {
@@ -38,8 +38,9 @@ public class CommentsController(TracerDbContext db, TeamAccess access, ActivityR
         var comments = await db.Comments
             .Where(c => c.IssueId == issueId)
             .OrderBy(c => c.CreatedAt)
+            .ThenBy(c => c.Id)
             .Select(c => new CommentDto(c.Id, c.IssueId, c.Author, c.Body, c.CreatedAt))
-            .ToListAsync();
+            .ToPagedResultAsync(paging);
         return Ok(comments);
     }
 

@@ -272,7 +272,7 @@ public class WebhooksApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task Another_teams_webhooks_are_out_of_reach()
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         var eng = teams!.Single(t => t.Key == "ENG");
         var webhook = await SubscribeAsync(eng.Id, "IssueCreated");
         var foreigner = _factory.CreateDesMemberClient();

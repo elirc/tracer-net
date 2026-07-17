@@ -34,7 +34,7 @@ public class IssueOrderingApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<List<string>> ColumnOrderAsync(Guid teamId, Guid stateId)
     {
-        var issues = await _client.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{teamId}/issues");
+        var issues = await _client.GetListAsync<IssuePayload>($"/api/teams/{teamId}/issues");
         return issues!
             .Where(i => i.StateId == stateId)
             .OrderBy(i => i.Position)
@@ -75,7 +75,7 @@ public class IssueOrderingApiTests : IClassFixture<TracerApiFactory>
 
         // The neighbours keep the ranks they were created with: a reorder is a
         // single-row update, not a renumbering of the column.
-        var issues = (await _client.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{team.Id}/issues"))!
+        var issues = (await _client.GetListAsync<IssuePayload>($"/api/teams/{team.Id}/issues"))!
             .Where(i => i.StateId == backlog.Id)
             .ToDictionary(i => i.Title, i => i.Position);
         Assert.Equal(a.Position, issues["a"]);
@@ -243,7 +243,7 @@ public class IssueOrderingApiTests : IClassFixture<TracerApiFactory>
             closest = (await response.Content.ReadFromJsonAsync<IssuePayload>())!;
         }
 
-        var column = (await _client.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{team.Id}/issues"))!
+        var column = (await _client.GetListAsync<IssuePayload>($"/api/teams/{team.Id}/issues"))!
             .Where(i => i.StateId == backlog.Id)
             .OrderBy(i => i.Position)
             .ToList();

@@ -108,7 +108,22 @@ expensive hash on every authenticated request, which is itself a DoS lever.
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Liveness probe — the only anonymous endpoint |
+| `GET` | `/api/health` | Liveness **and** readiness probe — the only anonymous endpoint |
+
+The probe actually touches the database rather than returning `200` the moment
+the process is up: a host that has lost its database is not healthy, so the check
+returns `503` when the probe fails and an orchestrator can pull the instance from
+rotation. The body is structured for exactly that consumer:
+
+```json
+{
+  "status": "ok",
+  "name": "tracer-net",
+  "version": "2.0.0",
+  "utcNow": "2026-07-17T16:15:00.123+00:00",
+  "database": { "healthy": true, "durationMs": 0.8 }
+}
+```
 
 ### Identity
 
@@ -173,7 +188,7 @@ Admin-only, except where noted.
 | `GET` | `/api/teams/{teamId}/issues` | List a team's issues in board order |
 | `POST` | `/api/teams/{teamId}/issues` | Create an issue; auto-numbered (`ENG-42`), appended to its column |
 | `GET` | `/api/issues/{id}` | Get an issue |
-| `PUT` | `/api/issues/{id}` | Update an issue's fields, project, cycle, and assignee |
+| `PUT` | `/api/issues/{id}` | Update an issue's fields, project, cycle, and assignee; pass the `version` you read for optimistic concurrency (409 on a stale write) |
 | `POST` | `/api/issues/{id}/transitions` | Move to another state; validated, appends to the target column |
 | `POST` | `/api/issues/{id}/reorder` | Reposition within a column, or move columns — see [Ordering](#ordering) |
 | `GET` | `/api/issues/{id}/children` | Sub-issues plus a progress roll-up — see [Sub-issues](#sub-issues) |
@@ -734,8 +749,9 @@ a controller ever runs — is [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807)
 | `401` | No key, an unknown key, or a revoked one |
 | `403` | Authenticated, but this needs a role you don't hold — or it isn't yours to edit |
 | `404` | The addressed resource does not exist, **or belongs to a team you're not on** |
-| `409` | The request is well-formed but collides with existing data (a duplicate team key, an overlapping cycle) |
+| `409` | The request is well-formed but collides with existing data (a duplicate team key, an overlapping cycle) **or the row it edits changed underneath it** (optimistic-concurrency conflict) |
 | `422` | The request is well-formed and coherent, but a domain rule forbids the outcome (an illegal transition, a backwards date range) |
+| `429` | Too many write requests in a short window — see [Rate limiting](#rate-limiting) |
 
 ```json
 {
@@ -746,6 +762,58 @@ a controller ever runs — is [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807)
   "traceId": "00-482031f9e1173765b2f925a2ccc1509b-e9a71d739ab27c1f-00"
 }
 ```
+
+## Pagination
+
+Every list endpoint that grows with usage returns the same envelope and takes the
+same two query parameters, so no single request can ask the database for an
+unbounded number of rows:
+
+```json
+{ "items": [ ... ], "page": 1, "pageSize": 50, "total": 137, "totalPages": 3 }
+```
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `page` | int ≥ 1 | Default 1 |
+| `pageSize` | int 1–100 | Default 50 (25 for `GET /api/issues`, whose paging predates this) |
+
+The paged endpoints are the issue search and board, activity feeds, notifications,
+webhook deliveries, saved-view execution, and the team/project/label/comment/
+relation/subscriber/webhook/saved-view/user/api-key lists. A handful of reads are
+deliberately **not** paged because they are bounded by the domain rather than by
+usage — a team's workflow states (its board columns), its cycles and milestones
+(whose derived status is filtered in memory), and an issue's direct children
+(whose roll-up is over the whole set). Each says so at its call site.
+
+## Concurrency
+
+An issue carries a `version` token that rotates on every update. It is an EF
+concurrency token, so a write is `UPDATE … WHERE Version = <the value that was
+read>`: two edits that raced both loaded the same version, the first wins, and the
+second updates zero rows and comes back as a `409` instead of silently clobbering
+a change nobody saw. Read the `version` on an issue and send it back on `PUT
+/api/issues/{id}` to hold your update to it; omit it and you are still protected
+against a concurrent in-flight edit, because the token that was read is checked
+either way.
+
+## Rate limiting
+
+Write requests draw from a per-credential fixed window; reads are never throttled.
+A burst of `GET`s is an eager client, but a burst of `POST`/`PUT`/`DELETE`s is a
+runaway script or retry storm, and each write costs a transaction, an audit entry,
+and — through the activity spine — webhook deliveries and notifications. Over the
+limit is a `429` `problem+json` with a `Retry-After` header. The limit is a fixed
+window read from configuration (`RateLimiting:PermitLimit`, `RateLimiting:WindowSeconds`;
+120 per 60s by default), partitioned by API key so one team's integration cannot
+spend everyone else's budget.
+
+## Request logging
+
+Every request logs one structured line — method, path, status, elapsed
+milliseconds — from the very front of the pipeline, so the timing covers auth,
+model binding, the handler, and the error middleware, and the line is still
+written when a request throws.
 
 ## Notes on the data model
 

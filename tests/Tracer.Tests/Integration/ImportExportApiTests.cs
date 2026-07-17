@@ -40,7 +40,7 @@ public class ImportExportApiTests : IClassFixture<TracerApiFactory>
 
     private async Task<TeamPayload> SeedTeamAsync(string key)
     {
-        var teams = await _admin.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _admin.GetListAsync<TeamPayload>("/api/teams");
         return teams!.Single(t => t.Key == key);
     }
 
@@ -77,7 +77,7 @@ public class ImportExportApiTests : IClassFixture<TracerApiFactory>
     }
 
     private async Task<List<IssuePayload>> IssuesAsync(Guid teamId) =>
-        (await _admin.GetFromJsonAsync<List<IssuePayload>>($"/api/teams/{teamId}/issues"))!;
+        (await _admin.GetListAsync<IssuePayload>($"/api/teams/{teamId}/issues"))!;
 
     // ---- Export ----
 

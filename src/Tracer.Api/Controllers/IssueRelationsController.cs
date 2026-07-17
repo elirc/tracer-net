@@ -32,7 +32,7 @@ namespace Tracer.Api.Controllers;
 public class IssueRelationsController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/issues/{issueId:guid}/relations")]
-    public async Task<ActionResult<List<IssueRelationDto>>> ListForIssue(Guid issueId)
+    public async Task<ActionResult<PagedResult<IssueRelationDto>>> ListForIssue(Guid issueId, [FromQuery] PageQuery paging)
     {
         var issue = await FindVisibleAsync(issueId);
         if (issue is null)
@@ -48,9 +48,10 @@ public class IssueRelationsController(TracerDbContext db, TeamAccess access, Act
             .Include(r => r.TargetIssue).ThenInclude(i => i!.State)
             .Include(r => r.TargetIssue).ThenInclude(i => i!.Team)
             .OrderBy(r => r.CreatedAt)
-            .ToListAsync();
+            .ThenBy(r => r.Id)
+            .ToPagedResultAsync(paging, r => ToDto(r, issueId));
 
-        return Ok(rows.Select(r => ToDto(r, issueId)).ToList());
+        return Ok(rows);
     }
 
     [HttpPost("api/issues/{issueId:guid}/relations")]

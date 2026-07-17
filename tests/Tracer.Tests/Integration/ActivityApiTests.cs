@@ -291,8 +291,8 @@ public class ActivityApiTests : IClassFixture<TracerApiFactory>
         Assert.Equal("BlockedBy", added.Field);
         Assert.Equal(blocker.Identifier, added.NewValue);
 
-        var relation = (await _client.GetFromJsonAsync<List<RelationPayload>>(
-            $"/api/issues/{blocked.Id}/relations"))!.Single();
+        var relation = (await _client.GetListAsync<RelationPayload>(
+            $"/api/issues/{blocked.Id}/relations")).Single();
         await _client.DeleteAsync($"/api/issues/{blocked.Id}/relations/{relation.Id}");
 
         var removed = (await IssueFeedAsync(blocked.Id)).First();
@@ -401,7 +401,7 @@ public class ActivityApiTests : IClassFixture<TracerApiFactory>
     public async Task The_team_feed_filters_by_type_actor_and_issue()
     {
         var team = await CreateTeamAsync("Act S", "ACS");
-        var users = await _client.GetFromJsonAsync<List<UserRow>>("/api/users");
+        var users = await _client.GetListAsync<UserRow>("/api/users");
         var ben = users!.Single(u => u.Handle == "ben");
         await _client.PutAsync($"/api/users/{ben.Id}/teams/{team.Id}", null);
 
@@ -508,7 +508,7 @@ public class ActivityApiTests : IClassFixture<TracerApiFactory>
     [Fact]
     public async Task Another_teams_feed_and_timeline_are_out_of_reach()
     {
-        var teams = await _client.GetFromJsonAsync<List<TeamPayload>>("/api/teams");
+        var teams = await _client.GetListAsync<TeamPayload>("/api/teams");
         var eng = teams!.Single(t => t.Key == "ENG");
         var issue = await CreateIssueAsync(eng.Id, "engineering business");
         var foreigner = _factory.CreateDesMemberClient();

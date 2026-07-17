@@ -19,7 +19,7 @@ namespace Tracer.Api.Controllers;
 public class WebhooksController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/webhooks")]
-    public async Task<ActionResult<List<WebhookDto>>> ListForTeam(Guid teamId)
+    public async Task<ActionResult<PagedResult<WebhookDto>>> ListForTeam(Guid teamId, [FromQuery] PageQuery paging)
     {
         if (!await access.CanAccessTeamAsync(User, teamId))
         {
@@ -29,9 +29,10 @@ public class WebhooksController(TracerDbContext db, TeamAccess access) : Control
         var webhooks = await db.Webhooks
             .Where(w => w.TeamId == teamId)
             .OrderBy(w => w.CreatedAt)
-            .ToListAsync();
+            .ThenBy(w => w.Id)
+            .ToPagedResultAsync(paging, w => w.ToDto());
 
-        return Ok(webhooks.Select(w => w.ToDto()).ToList());
+        return Ok(webhooks);
     }
 
     [HttpPost("api/teams/{teamId:guid}/webhooks")]

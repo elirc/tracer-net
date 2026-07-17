@@ -13,7 +13,7 @@ namespace Tracer.Api.Controllers;
 public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
     [HttpGet("api/teams/{teamId:guid}/issues")]
-    public async Task<ActionResult<List<IssueDto>>> ListForTeam(Guid teamId)
+    public async Task<ActionResult<PagedResult<IssueDto>>> ListForTeam(Guid teamId, [FromQuery] PageQuery paging)
     {
         if (!await access.CanAccessTeamAsync(User, teamId))
         {
@@ -22,15 +22,20 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
 
         var team = await db.Teams.FindAsync(teamId);
 
+        // Include before paging: on a collection include EF applies Skip/Take to
+        // the joined rows rather than the issues, so an issue with three labels
+        // would eat three slots of a page. The id tiebreak keeps a board that
+        // shares state/position ranks from repeating or skipping rows across pages.
         var issues = await db.Issues
             .Where(i => i.TeamId == teamId)
             .Include(i => i.State)
             .Include(i => i.Labels)
             .OrderBy(i => i.State!.Position)
             .ThenBy(i => i.Position)
-            .ToListAsync();
+            .ThenBy(i => i.Id)
+            .ToPagedResultAsync(paging, i => i.ToDto(team!.Key, i.State!.Name));
 
-        return Ok(issues.Select(i => i.ToDto(team!.Key, i.State!.Name)).ToList());
+        return Ok(issues);
     }
 
     /// <summary>
@@ -220,6 +225,15 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             issue.ParentId,
         };
 
+        // If the caller told us which version they edited, hold the update to it:
+        // EF checks the token it read, so pointing that at the caller's expected
+        // value turns "someone changed this since you loaded it" into a 409 rather
+        // than a silent overwrite of their change.
+        if (request.Version is { } expected)
+        {
+            db.Entry(issue).Property(i => i.Version).OriginalValue = expected;
+        }
+
         issue.Title = request.Title;
         issue.Description = request.Description;
         issue.Priority = request.Priority;
@@ -230,6 +244,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
         issue.MilestoneId = request.MilestoneId;
         issue.ParentId = request.ParentId;
         issue.UpdatedAt = DateTimeOffset.UtcNow;
+        issue.Version = Guid.NewGuid();
 
         await RecordEditsAsync(issue, before.Title, before.Description, before.Priority, before.Estimate);
 
@@ -249,9 +264,33 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
                 newValue: await IdentifierOfAsync(issue.ParentId));
         }
 
-        await db.SaveChangesAsync();
+        if (!await TrySaveAsync())
+        {
+            return this.ConcurrencyConflictProblem("Issue");
+        }
 
         return Ok(issue.ToDto(issue.Team!.Key, issue.State!.Name));
+    }
+
+    /// <summary>
+    /// Saves, translating the optimistic-concurrency failure into a caller-visible
+    /// signal rather than letting it bubble up as a 500. EF raises this when a
+    /// write's <c>WHERE Version = …</c> matches no row — i.e. the issue was edited
+    /// between the caller reading it and saving. Returns false so the caller can
+    /// answer 409; any other failure still throws and becomes a 500, because it is
+    /// one.
+    /// </summary>
+    private async Task<bool> TrySaveAsync()
+    {
+        try
+        {
+            await db.SaveChangesAsync();
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -324,8 +363,12 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             issue.State = target;
             issue.Position = nextPosition + 1;
             issue.UpdatedAt = DateTimeOffset.UtcNow;
+            issue.Version = Guid.NewGuid();
             await activity.RecordAsync(User, issue, ActivityType.IssueStateChanged, oldValue: previous, newValue: target.Name);
-            await db.SaveChangesAsync();
+            if (!await TrySaveAsync())
+            {
+                return this.ConcurrencyConflictProblem("Issue");
+            }
         }
 
         return Ok(issue.ToDto(issue.Team!.Key, target.Name));
@@ -442,6 +485,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
         issue.State = target;
         issue.Position = IssueRanker.Between(lower, upper);
         issue.UpdatedAt = DateTimeOffset.UtcNow;
+        issue.Version = Guid.NewGuid();
 
         // Dragging a card to another column is a state change and is logged as
         // one — the same event an explicit transition produces, because to
@@ -454,7 +498,10 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
                 oldValue: leftColumn, newValue: target.Name);
         }
 
-        await db.SaveChangesAsync();
+        if (!await TrySaveAsync())
+        {
+            return this.ConcurrencyConflictProblem("Issue");
+        }
 
         return Ok(issue.ToDto(issue.Team!.Key, target.Name));
     }
@@ -466,6 +513,11 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
     /// listing a board stays one query. Hanging it off every issue in a list
     /// would mean counting children per row — the N+1 this product has an open
     /// ticket about — to answer a question only an issue's own page asks.
+    ///
+    /// Not paged: the roll-up is over the whole set of direct children, so the
+    /// read is the roll-up's own input rather than an open-ended list, and a
+    /// paged subset would make the percentages describe a page instead of the
+    /// issue. Direct children of one issue are bounded by that issue's own fan-out.
     /// </summary>
     [HttpGet("api/issues/{id:guid}/children")]
     public async Task<ActionResult<SubIssuesDto>> Children(Guid id)

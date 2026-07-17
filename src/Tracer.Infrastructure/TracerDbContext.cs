@@ -103,6 +103,11 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
             issue.Property(i => i.ExternalId).HasMaxLength(200);
             issue.HasIndex(i => new { i.TeamId, i.Number }).IsUnique();
 
+            // Rotated by the update paths and checked by EF on every write, so two
+            // concurrent edits cannot silently overwrite one another — the loser
+            // updates zero rows and surfaces as a 409 rather than a lost change.
+            issue.Property(i => i.Version).IsConcurrencyToken();
+
             // An external id names one issue in a team, or none. The filter is
             // what makes that true without also claiming that the many issues
             // never imported from anywhere are all "the same" null-ided issue —
