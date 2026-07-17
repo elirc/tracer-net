@@ -223,6 +223,18 @@ caller to ask, the API had no way to know better. The field is now *gone* from
 the contract rather than ignored: silently overwriting it would be worse, since
 the client would be told its impersonation had worked.
 
+### Saved views
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/teams/{teamId}/views` | The team's shared views, plus your own personal ones |
+| `POST` | `/api/teams/{teamId}/views` | Create a view |
+| `GET` | `/api/teams/{teamId}/views/default` | The team's default view (404 if it has none) |
+| `GET` | `/api/views/{id}` | Get a view |
+| `PUT` | `/api/views/{id}` | Rename a view, replace its rules, change its scope, or make it the default |
+| `DELETE` | `/api/views/{id}` | Delete a view |
+| `GET` | `/api/views/{id}/issues` | **Run** the view; `?page=&pageSize=` — see [Saved views](#saved-views-1) |
+
 ### Cycles
 
 | Method | Route | Purpose |
@@ -422,6 +434,56 @@ Two details worth knowing:
 ```bash
 curl "http://localhost:5284/api/issues?assignee=ana&priority=High&sort=Created&order=Asc"
 ```
+
+## Saved views
+
+A view is a **named filter set**, stored as rules and run on demand. Its rules
+are exactly the filter half of [Search](#search) — every filter above except
+`teamId`, `page`, and `pageSize` — and running one goes through the same query
+builder, so a view cannot escape wildcards differently or order ties differently
+than search does. It is not a second implementation.
+
+```bash
+curl -X POST http://localhost:5284/api/teams/$TEAM/views \
+  -H 'X-Api-Key: trk_dev_member_ben' -H 'Content-Type: application/json' \
+  -d '{"name":"My urgent bugs","scope":"Personal",
+       "rules":{"assignee":"ben","priority":"Urgent","sort":"Created","order":"Asc"}}'
+
+curl "http://localhost:5284/api/views/$VIEW/issues?page=1&pageSize=25" \
+  -H 'X-Api-Key: trk_dev_member_ben'
+```
+
+Three rules define the shape:
+
+- **The rules cannot name a team.** A view already belongs to one, so a `teamId`
+  rule would give "whose issues does this show?" two answers that can disagree —
+  and a way to aim a view on your team at someone else's. The field simply isn't
+  in the rule set, so running a view is always scoped to its own team.
+- **Paging is a property of the request, not the view.** The same view is page 1
+  for one caller and page 3 for the next, so `page`/`pageSize` are supplied when
+  it runs.
+- **A rule that points at another team's project, state, cycle, or label is
+  rejected** (`400`) when the view is saved. Stored as-is, such a view would
+  match nothing forever, and the caller would be told it had worked.
+
+| Scope | Owner | Who sees it |
+|---|---|---|
+| `Team` | none — the team's | anyone who can reach the team |
+| `Personal` | you | you, and nobody else |
+
+A team view has **no owner**: it is team property, so it survives its creator's
+account being deleted rather than being cascade-deleted out from under the team.
+A personal view is the opposite — it belongs to one person and goes when they do.
+Personal really does mean personal: an admin reaches every team, but a workspace
+role is a licence to administer the workspace, not to read over someone's
+shoulder, so another user's personal view is `404` even for an admin.
+
+Each team may have **one default view** — the one to land on when nobody has
+chosen. Promoting a view demotes the outgoing default in the same transaction,
+and the invariant is held by a filtered unique index rather than by the handler
+remembering to. Only a team view may be the default (`422` otherwise): the
+default is what everyone sees, and a personal view is visible to exactly one
+person.
 
 ## Ordering
 

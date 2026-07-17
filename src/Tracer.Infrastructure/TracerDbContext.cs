@@ -13,6 +13,7 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<Cycle> Cycles => Set<Cycle>();
+    public DbSet<SavedView> SavedViews => Set<SavedView>();
     public DbSet<User> Users => Set<User>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
@@ -210,6 +211,33 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
                 .WithMany(i => i.Comments)
                 .HasForeignKey(c => c.IssueId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SavedView>(view =>
+        {
+            view.Property(v => v.Name).HasMaxLength(100);
+
+            view.HasOne(v => v.Team)
+                .WithMany(t => t.SavedViews)
+                .HasForeignKey(v => v.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A personal view belongs to its owner and goes when they do. A team
+            // view has no owner (OwnerUserId is null), so deleting a user cannot
+            // take the team's shared views with them.
+            view.HasOne(v => v.Owner)
+                .WithMany(u => u.SavedViews)
+                .HasForeignKey(v => v.OwnerUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // "At most one default per team" is a data invariant, so the database
+            // enforces it. A filtered unique index constrains only the rows that
+            // claim to be the default and leaves every other view unconstrained.
+            view.HasIndex(v => v.TeamId)
+                .IsUnique()
+                .HasFilter("\"IsDefault\" = 1");
+
+            view.HasIndex(v => new { v.TeamId, v.Scope, v.OwnerUserId });
         });
 
         modelBuilder.Entity<Cycle>(cycle =>

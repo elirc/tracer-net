@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
+using Tracer.Api.Search;
 using Tracer.Domain;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
@@ -11,9 +12,6 @@ namespace Tracer.Api.Controllers;
 [ApiController]
 public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRecorder activity) : ControllerBase
 {
-    /// <summary>Escape character for LIKE patterns; free-text input may contain % or _.</summary>
-    private const string LikeEscape = "\\";
-
     [HttpGet("api/teams/{teamId:guid}/issues")]
     public async Task<ActionResult<List<IssueDto>>> ListForTeam(Guid teamId)
     {
@@ -59,61 +57,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             issues = issues.Where(i => i.TeamId == teamId);
         }
 
-        if (query.ProjectId is { } projectId)
-        {
-            issues = issues.Where(i => i.ProjectId == projectId);
-        }
-
-        if (query.StateId is { } stateId)
-        {
-            issues = issues.Where(i => i.StateId == stateId);
-        }
-
-        if (query.CycleId is { } cycleId)
-        {
-            issues = issues.Where(i => i.CycleId == cycleId);
-        }
-
-        if (query.LabelId is { } labelId)
-        {
-            issues = issues.Where(i => i.Labels.Any(l => l.Id == labelId));
-        }
-
-        if (query.Priority is { } priority)
-        {
-            issues = issues.Where(i => i.Priority == priority);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Assignee))
-        {
-            var assignee = query.Assignee.Trim().ToLower();
-            issues = issues.Where(i => i.Assignee != null && i.Assignee.ToLower() == assignee);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Q))
-        {
-            var pattern = $"%{EscapeLike(query.Q.Trim())}%";
-            issues = issues.Where(i =>
-                EF.Functions.Like(i.Title, pattern, LikeEscape) ||
-                (i.Description != null && EF.Functions.Like(i.Description, pattern, LikeEscape)));
-        }
-
-        var total = await issues.CountAsync();
-
-        var results = await ApplySort(issues, query.Sort, query.Order)
-            .Include(i => i.Team)
-            .Include(i => i.State)
-            .Include(i => i.Labels)
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
-            .ToListAsync();
-
-        return Ok(new PagedResult<IssueDto>(
-            results.Select(i => i.ToDto(i.Team!.Key, i.State!.Name)).ToList(),
-            query.Page,
-            query.PageSize,
-            total,
-            (int)Math.Ceiling(total / (double)query.PageSize)));
+        return Ok(await IssueSearch.PageAsync(issues, query, query.Page, query.PageSize));
     }
 
     [HttpPost("api/teams/{teamId:guid}/issues")]
@@ -621,45 +565,4 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
 
         return IssueGraph.WouldCycle(edges, issue.Id, parentId);
     }
-
-    /// <summary>
-    /// Ties are broken by id so that paging through a sorted result cannot
-    /// repeat or skip rows when several issues share a sort key.
-    /// </summary>
-    private static IQueryable<Issue> ApplySort(IQueryable<Issue> issues, IssueSortField sort, SortDirection order)
-    {
-        var desc = order == SortDirection.Desc;
-
-        IOrderedQueryable<Issue> sorted = sort switch
-        {
-            IssueSortField.Created => desc
-                ? issues.OrderByDescending(i => i.CreatedAt)
-                : issues.OrderBy(i => i.CreatedAt),
-            IssueSortField.Number => desc
-                ? issues.OrderByDescending(i => i.Number)
-                : issues.OrderBy(i => i.Number),
-            IssueSortField.Title => desc
-                ? issues.OrderByDescending(i => i.Title)
-                : issues.OrderBy(i => i.Title),
-            // "No priority" is an absence, not the lowest urgency, so it sorts
-            // last ascending rather than jumping ahead of Urgent.
-            IssueSortField.Priority => desc
-                ? issues.OrderByDescending(i => i.Priority == IssuePriority.None ? 5 : (int)i.Priority)
-                : issues.OrderBy(i => i.Priority == IssuePriority.None ? 5 : (int)i.Priority),
-            // Board order: state columns left to right, then rank within a column.
-            IssueSortField.Position => desc
-                ? issues.OrderByDescending(i => i.State!.Position).ThenByDescending(i => i.Position)
-                : issues.OrderBy(i => i.State!.Position).ThenBy(i => i.Position),
-            _ => desc
-                ? issues.OrderByDescending(i => i.UpdatedAt)
-                : issues.OrderBy(i => i.UpdatedAt),
-        };
-
-        return sorted.ThenBy(i => i.Id);
-    }
-
-    private static string EscapeLike(string value) => value
-        .Replace(LikeEscape, LikeEscape + LikeEscape)
-        .Replace("%", LikeEscape + "%")
-        .Replace("_", LikeEscape + "_");
 }
