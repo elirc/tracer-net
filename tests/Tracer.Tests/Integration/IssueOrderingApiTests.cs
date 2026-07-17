@@ -9,7 +9,7 @@ public class IssueOrderingApiTests : IClassFixture<TracerApiFactory>
 
     public IssueOrderingApiTests(TracerApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateAdminClient();
     }
 
     private sealed record TeamPayload(Guid Id, string Key);

@@ -1,38 +1,79 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Tracer.Api.Auth;
 using Tracer.Api.Contracts;
 using Tracer.Domain.Entities;
 using Tracer.Infrastructure;
 
 namespace Tracer.Api.Controllers;
 
+/// <summary>
+/// Teams.
+///
+/// Creating, renaming, and deleting a team are workspace-shaped decisions, so
+/// they are admin-only. Everything a team *contains* — its workflow, labels,
+/// projects, cycles, issues — is configured by its own members: a workspace
+/// where only admins can add a label is a workspace where admins are a ticket
+/// queue.
+/// </summary>
 [ApiController]
 [Route("api/teams")]
-public class TeamsController(TracerDbContext db) : ControllerBase
+public class TeamsController(TracerDbContext db, TeamAccess access) : ControllerBase
 {
+    /// <summary>
+    /// Lists the teams the caller can see: every team for an admin, joined teams
+    /// for a member. A member who is on no teams gets an empty list, not a 403 —
+    /// nothing was denied them, there is simply nothing there.
+    /// </summary>
     [HttpGet]
     public async Task<ActionResult<List<TeamDto>>> List()
     {
-        var teams = await db.Teams
+        var teams = db.Teams.AsQueryable();
+        if (!User.IsAdmin())
+        {
+            var mine = await access.MemberTeamIdsAsync(User);
+            teams = teams.Where(t => mine.Contains(t.Id));
+        }
+
+        var results = await teams
             .OrderBy(t => t.CreatedAt)
             .Select(t => new TeamDto(t.Id, t.Name, t.Key, t.CreatedAt))
             .ToListAsync();
-        return Ok(teams);
+        return Ok(results);
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TeamDto>> Get(Guid id)
     {
-        var team = await db.Teams.FindAsync(id);
-        if (team is null)
+        if (!await access.CanAccessTeamAsync(User, id))
         {
             return this.NotFoundProblem("Team", id);
         }
 
-        return Ok(new TeamDto(team.Id, team.Name, team.Key, team.CreatedAt));
+        var team = await db.Teams.FindAsync(id);
+        return Ok(new TeamDto(team!.Id, team.Name, team.Key, team.CreatedAt));
+    }
+
+    /// <summary>The roster of a team the caller is on.</summary>
+    [HttpGet("{teamId:guid}/members")]
+    public async Task<ActionResult<List<TeamMemberDto>>> ListMembers(Guid teamId)
+    {
+        if (!await access.CanAccessTeamAsync(User, teamId))
+        {
+            return this.NotFoundProblem("Team", teamId);
+        }
+
+        var members = await db.TeamMemberships
+            .Where(m => m.TeamId == teamId)
+            .OrderBy(m => m.User!.Handle)
+            .Select(m => new TeamMemberDto(m.UserId, m.User!.Handle, m.User.Name, m.User.Role, m.CreatedAt))
+            .ToListAsync();
+        return Ok(members);
     }
 
     [HttpPost]
+    [Authorize(Roles = nameof(WorkspaceRole.Admin))]
     public async Task<ActionResult<TeamDto>> Create(CreateTeamRequest request)
     {
         if (await db.Teams.AnyAsync(t => t.Key == request.Key))
@@ -52,6 +93,7 @@ public class TeamsController(TracerDbContext db) : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = nameof(WorkspaceRole.Admin))]
     public async Task<ActionResult<TeamDto>> Update(Guid id, UpdateTeamRequest request)
     {
         var team = await db.Teams.FindAsync(id);
@@ -75,6 +117,7 @@ public class TeamsController(TracerDbContext db) : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = nameof(WorkspaceRole.Admin))]
     public async Task<IActionResult> Delete(Guid id)
     {
         var team = await db.Teams.FindAsync(id);

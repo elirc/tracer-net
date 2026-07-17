@@ -9,7 +9,7 @@ public class HealthEndpointTests : IClassFixture<TracerApiFactory>
 
     public HealthEndpointTests(TracerApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateAnonymousClient();
     }
 
     [Fact]

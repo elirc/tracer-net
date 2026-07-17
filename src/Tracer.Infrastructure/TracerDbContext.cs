@@ -13,6 +13,9 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<Cycle> Cycles => Set<Cycle>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -21,6 +24,47 @@ public class TracerDbContext(DbContextOptions<TracerDbContext> options) : DbCont
             team.Property(t => t.Name).HasMaxLength(100);
             team.Property(t => t.Key).HasMaxLength(10);
             team.HasIndex(t => t.Key).IsUnique();
+        });
+
+        modelBuilder.Entity<User>(user =>
+        {
+            user.Property(u => u.Handle).HasMaxLength(100);
+            user.Property(u => u.Name).HasMaxLength(200);
+            user.HasIndex(u => u.Handle).IsUnique();
+        });
+
+        modelBuilder.Entity<ApiKey>(key =>
+        {
+            key.Property(k => k.Name).HasMaxLength(100);
+            key.Property(k => k.KeyHash).HasMaxLength(64);
+            key.Property(k => k.Prefix).HasMaxLength(16);
+
+            // Authentication looks a key up by hash on every request, so this
+            // index is the difference between an indexed seek and a table scan
+            // of every credential in the workspace.
+            key.HasIndex(k => k.KeyHash).IsUnique();
+
+            key.HasOne(k => k.User)
+                .WithMany(u => u.ApiKeys)
+                .HasForeignKey(k => k.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeamMembership>(membership =>
+        {
+            // One row per person per team: the unique index is what makes
+            // "add to team" idempotent rather than quietly duplicating.
+            membership.HasIndex(m => new { m.UserId, m.TeamId }).IsUnique();
+
+            membership.HasOne(m => m.User)
+                .WithMany(u => u.Memberships)
+                .HasForeignKey(m => m.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            membership.HasOne(m => m.Team)
+                .WithMany(t => t.Memberships)
+                .HasForeignKey(m => m.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WorkflowState>(state =>
