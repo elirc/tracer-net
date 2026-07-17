@@ -19,7 +19,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
         var team = await db.Teams.FindAsync(teamId);
         if (team is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         var issues = await db.Issues
@@ -110,7 +110,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
         var team = await db.Teams.FindAsync(teamId);
         if (team is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Team", teamId);
         }
 
         WorkflowState? state;
@@ -181,7 +181,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .SingleOrDefaultAsync(i => i.Id == id);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", id);
         }
 
         return Ok(issue.ToDto(issue.Team!.Key, issue.State!.Name));
@@ -197,7 +197,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .SingleOrDefaultAsync(i => i.Id == id);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", id);
         }
 
         if (request.ProjectId is { } projectId
@@ -240,11 +240,11 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .SingleOrDefaultAsync(i => i.Id == id);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", id);
         }
 
         var target = await db.WorkflowStates
-            .SingleOrDefaultAsync(s => s.Id == request.StateId && s.TeamId == issue.TeamId);
+            .SingleOrDefaultAsync(s => s.Id == request.StateId!.Value && s.TeamId == issue.TeamId);
         if (target is null)
         {
             return ValidationProblem(title: "Unknown workflow state for this team.");
@@ -288,7 +288,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
             .SingleOrDefaultAsync(i => i.Id == id);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", id);
         }
 
         var target = issue.State!;
@@ -389,7 +389,7 @@ public class IssuesController(TracerDbContext db) : ControllerBase
         var issue = await db.Issues.FindAsync(id);
         if (issue is null)
         {
-            return NotFound();
+            return this.NotFoundProblem("Issue", id);
         }
 
         db.Issues.Remove(issue);
@@ -397,13 +397,10 @@ public class IssuesController(TracerDbContext db) : ControllerBase
         return NoContent();
     }
 
-    private UnprocessableEntityObjectResult InvalidTransition(WorkflowState from, WorkflowState to) =>
-        UnprocessableEntity(new ProblemDetails
-        {
-            Title = "Invalid state transition.",
-            Detail = $"Cannot move an issue from '{from.Name}' ({from.Type}) to '{to.Name}' ({to.Type}).",
-            Status = StatusCodes.Status422UnprocessableEntity,
-        });
+    private ObjectResult InvalidTransition(WorkflowState from, WorkflowState to) =>
+        this.DomainRuleProblem(
+            "Invalid state transition.",
+            $"Cannot move an issue from '{from.Name}' ({from.Type}) to '{to.Name}' ({to.Type}).");
 
     /// <summary>
     /// Ties are broken by id so that paging through a sorted result cannot
