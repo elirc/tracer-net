@@ -19,6 +19,7 @@ public record IssueDto(
     string State,
     Guid? ProjectId,
     Guid? CycleId,
+    Guid? MilestoneId,
     Guid? ParentId,
     double Position,
     IReadOnlyList<LabelDto> Labels,
@@ -33,6 +34,7 @@ public record CreateIssueRequest(
     Guid? StateId = null,
     Guid? ProjectId = null,
     Guid? CycleId = null,
+    Guid? MilestoneId = null,
     [MaxLength(100)] string? Assignee = null,
     Guid? ParentId = null);
 
@@ -45,6 +47,7 @@ public record UpdateIssueRequest(
     [Range(0, 100)] int? Estimate,
     Guid? ProjectId,
     Guid? CycleId = null,
+    Guid? MilestoneId = null,
     [MaxLength(100)] string? Assignee = null,
     Guid? ParentId = null);
 
@@ -64,6 +67,7 @@ public static class IssueMappings
         stateName,
         issue.ProjectId,
         issue.CycleId,
+        issue.MilestoneId,
         issue.ParentId,
         issue.Position,
         issue.Labels.Select(l => new LabelDto(l.Id, l.Name, l.Color)).ToList(),

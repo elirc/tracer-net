@@ -103,6 +103,12 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             return ValidationProblem(title: "Unknown cycle for this team.");
         }
 
+        if (request.MilestoneId is { } newMilestoneId
+            && !await db.Milestones.AnyAsync(m => m.Id == newMilestoneId && m.TeamId == teamId))
+        {
+            return ValidationProblem(title: "Unknown milestone for this team.");
+        }
+
         if (request.ParentId is { } newParentId
             && !await db.Issues.AnyAsync(i => i.Id == newParentId && i.TeamId == teamId))
         {
@@ -126,6 +132,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             StateId = state.Id,
             ProjectId = request.ProjectId,
             CycleId = request.CycleId,
+            MilestoneId = request.MilestoneId,
             ParentId = request.ParentId,
             Position = nextPosition + 1,
         };
@@ -177,6 +184,12 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
             return ValidationProblem(title: "Unknown cycle for this team.");
         }
 
+        if (request.MilestoneId is { } milestoneId
+            && !await db.Milestones.AnyAsync(m => m.Id == milestoneId && m.TeamId == issue.TeamId))
+        {
+            return ValidationProblem(title: "Unknown milestone for this team.");
+        }
+
         if (request.ParentId is { } parentId && parentId != issue.ParentId)
         {
             if (!await db.Issues.AnyAsync(i => i.Id == parentId && i.TeamId == issue.TeamId))
@@ -214,6 +227,7 @@ public class IssuesController(TracerDbContext db, TeamAccess access, ActivityRec
         issue.Assignee = request.Assignee;
         issue.ProjectId = request.ProjectId;
         issue.CycleId = request.CycleId;
+        issue.MilestoneId = request.MilestoneId;
         issue.ParentId = request.ParentId;
         issue.UpdatedAt = DateTimeOffset.UtcNow;
 

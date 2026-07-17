@@ -40,6 +40,10 @@ public class Issue
     public Guid? CycleId { get; set; }
     public Cycle? Cycle { get; set; }
 
+    /// <summary>The roadmap milestone this issue counts toward; null when it is on no roadmap.</summary>
+    public Guid? MilestoneId { get; set; }
+    public Milestone? Milestone { get; set; }
+
     /// <summary>
     /// The issue this one is a sub-issue of; null when it stands on its own.
     /// A parent is always in the same team — see <c>IssuesController</c> — so the
